@@ -1,4 +1,4 @@
-#!venv/bin/python3
+# Python 3.6
 # -*- coding: utf-8 -*-
 
 import colors
@@ -6,6 +6,7 @@ import math
 import tdl
 import textwrap
 from random import randint
+
 
 
 class BasicMonster:
@@ -23,6 +24,11 @@ class BasicMonster:
                 monster.fighter.attack(player)
 
 
+# # # # # # # # # # # # # # # # # # # #
+# Entities and Entity Modules
+# # # # # # # # # # # # # # # # # # # #
+
+
 class Entity:
     """Base class for any entity in the dungeon.
 
@@ -35,6 +41,7 @@ class Entity:
     blocks -(bool)- true sets entity walky, false blocky
     fighter -(object)- object to initialize entity's combat stats
     ai -(object)- object which holds ai instructions
+    item -(object)- object which holds item instructions
     """
 
     def __init__(self, x, y, char, name, color, blocks=False, fighter=None,
@@ -54,6 +61,9 @@ class Entity:
         self.item = item
         if self.item:
             self.item.owner = self
+
+    def distance(self, x, y):
+        return math.sqrt((x - self.x) ** 2 + (y - self.y) ** 2)
 
     def distance_to(self, other):
         dx = other.x - self.x
@@ -94,26 +104,24 @@ class Fighter:
     hp -(int)- the amount of health points the entity has
     defense -(int)- the amount by which incoming damage is reduced
     power -(int)- the amount the entity deals as outgoing damage
+    xp -(int)- the amount of experience the entity has
+        xp is yielded to the entity's murderer upon death
     death_func -(function)- in the event of death, call
+
+    Functions:
+    attack(<target>) - attempts to deal damage to <target> Entity
+    heal(<amount>) - attempts to heal self by <amount>
+        if amount healed exceeds maximum, hp is set to maximum
+    take_damage(<amount>) - subtracts <amount> hp from self
     """
 
-    def __init__(self, hp, defense, power, death_func=None):
+    def __init__(self, hp, defense, power, xp, death_func=None):
         self.max_hp = hp
         self.hp = hp
         self.defense = defense
         self.power = power
+        self.xp = xp
         self.death_func = death_func
-
-    def take_damage(self, damage):
-        damage = damage
-
-        if damage > 0:
-            self.hp -= damage
-
-        if self.hp <= 0:
-            death = self.death_func
-            if death is not None:
-                death(self.owner)
 
     def attack(self, target):
         damage = self.power - target.fighter.defense
@@ -123,13 +131,46 @@ class Fighter:
                     colors.gray)
             target.fighter.take_damage(damage)
         else:
-            print(f'{self.owner.name}\'s puny attack bounced off {target.name}')
+            atk_msg = f'{self.owner.name}\'s puny'
+            atk_msg += f' attack bounced off {target.name}'
+            message(atk_msg, colors.light_gray)
+
+    def heal(self, amount):
+        self.hp += amount
+        # No over-healing
+        if self.hp > self.max_hp:
+            self.hp = self.max_hp
+
+    def take_damage(self, damage) :
+        damage = damage
+
+        if damage > 0 :
+            self.hp -= damage
+
+        if self.hp <= 0 :
+            if self.owner != player:
+                player.fighter.xp += self.xp
+
+            death = self.death_func
+            if death is not None:
+                death(self.owner)
 
 
 class Item:
     """An item which can be used by the player"""
 
+    def __init__(self, use_func=None):
+        self.use_func = use_func
+
+    def drop(self):
+        objects.append(self.owner)
+        inventory.remove(self.owner)
+        self.owner.x = player.x
+        self.owner.y = player.y
+        message(f'You place the {self.name} on the ground', colors.yellow)
+
     def pick_up(self):
+        # Add to inventory
         if len(inventory) >= 26:
             message(f'Pockets are full, couldn\'t pick up {self.owner.name}',
                     colors.red)
@@ -139,21 +180,87 @@ class Item:
             message(f'You put a {self.owner.name} in your pocket.',
                     colors.green)
 
+    def use(self):
+        # If there's no function to call, you can't use this item
+        if self.use_func is None:
+            message(f'You cant use a {self.owner.name}')
+        else:
+            # This calls use_func and checks the return
+            if self.use_func() != 'cancel':
+                # Remove the item from inventory unless it shouldn't be removed
+                inventory.remove(self.owner)
 
-class Tile:
-    """This represents a map tile.
 
-    Keyword Arguments:
-    blocked -(bool)- walkable if true, unwalkable if false
-    block_sight -(bool)- for FOV, blocks LOS if true
-    """
-    def __init__(self, blocked, block_sight=None):
-        self.blocked = blocked
-        self.explored = False
+def closest_monster(max_range):
+    closest_enemy = None
+    closest_dist = max_range + 1
+    for obj in objects:
+        if obj.fighter \
+                and not obj == player \
+                and (obj.x, obj.y) in visible_tiles:
+            dist = player.distance_to(obj)
+            if dist < closest_dist:
+                closest_enemy = obj
+                closest_dist = dist
+    return closest_enemy
 
-        if block_sight is None:
-            block_sight = blocked
-        self.block_sight = block_sight
+
+def light_heal():
+    """Increases player HP by 2 to 5 points"""
+
+    if player.fighter.hp == player.fighter.max_hp:
+        message('You are already at full HP', colors.light_red)
+        return 'cancel'
+    heal_amount = randint(2, 5)
+    healmsg = f'On a scale of 0 to {player.fighter.max_hp}, you\'re feeling'
+    healmsg += f' about {heal_amount} better than you did.'
+    message(healmsg, colors.azure)
+    player.fighter.heal(heal_amount)
+
+
+def light_missile():
+    """Deals (8) damage to the nearest enemy in the FOV"""
+
+    monster = closest_monster(fov_radius)
+
+    if monster is None:
+        message('You cannot cast Magic Missle at the Darkness', colors.red)
+        return 'cancel'
+
+    atk_msg = f'A pale blue energy violently strikes the {monster.name}'
+    atk_msg += f' for 8 points of damage'
+    message(atk_msg, colors.light_blue)
+    monster.fighter.take_damage(8)
+
+
+def player_death(player):
+    """Displays player's corpse and a Game Over message"""
+
+    global game_state
+    message('...and You Dead.')
+    player.color = colors.dark_red
+    player.char = 'F'
+    # Game over, dood.
+    game_state = 'dead'
+
+
+def monster_death(monster):
+    """Displays the monster's corpse and a death message"""
+
+    message(f'{monster.name.capitalize()} is slain!')
+    monster.name = f'what remains of {monster.name}'
+    monster.char = '%'
+    monster.color = colors.dark_red
+    monster.send_to_back()
+    # Disable the important mechanics on this entity
+    monster.blocks = False
+    monster.fighter = None
+    monster.ai = None
+
+
+# # # # # # # # # # # # # # # # # # # #
+#   Dungeon Generation
+# # # # # # # # # # # # # # # # # # # #
 
 
 class Rect:
@@ -171,6 +278,22 @@ class Rect:
     def intersect(self, other):
         return (self.x1 <= other.x2 and self.x2 >= other.x1 and
                 self.y1 <= other.y2 and self.y2 >= other.y1)
+
+
+class Tile:
+    """This represents a map tile.
+
+    Keyword Arguments:
+    blocked -(bool)- walkable if true, unwalkable if false
+    block_sight -(bool)- for FOV, blocks LOS if true
+    """
+    def __init__(self, blocked, block_sight=None):
+        self.blocked = blocked
+        self.explored = False
+
+        if block_sight is None:
+            block_sight = blocked
+        self.block_sight = block_sight
 
 
 def create_room(room):
@@ -194,60 +317,6 @@ def create_v_tunnel(y1, y2, x):
     for y in range(min(y1, y2), max(y1, y2) + 1):
         field[x][y].blocked = False
         field[x][y].block_sight = False
-
-
-def get_names_under_mouse():
-    global visible_tiles
-
-    (x, y) = mouse_coord
-    names = [obj.name for obj in objects
-             if obj.x == x and obj.y == y and (obj.x, obj.y) in visible_tiles]
-    names = ', '.join(names)
-    return names.capitalize()
-
-def handle_keys():
-    global fov_recompute
-    global mouse_coord
-
-    keypress = False
-    for event in tdl.event.get() :
-        if event.type == 'KEYDOWN':
-            user_input = event
-            keypress = True
-        if event.type == 'MOUSEMOTION':
-            mouse_coord = event.cell
-
-    if not keypress:
-        return 'no-turn'
-
-
-
-    if game_state == 'play':
-        # Shift player on arrow key
-        if user_input.key == 'UP':
-            player_move(0, -1)
-        elif user_input.key == 'DOWN':
-            player_move(0, 1)
-        elif user_input.key == 'LEFT':
-            player_move(-1, 0)
-        elif user_input.key == 'RIGHT':
-            player_move(1, 0)
-        else:
-            # Actions which do not take a turn
-            # alt + enter : toggle fullscreen
-            if user_input.key == 'ENTER' and user_input.alt :
-                tdl.set_fullscreen(not tdl.get_fullscreen())
-            # enter : pick up item beneath player
-            elif user_input.key == 'ENTER':
-                for obj in objects:
-                    if obj.x == player.x and obj.y == player.y and obj.item:
-                        obj.item.pick_up()
-                        break
-            elif user_input.key == 'ESCAPE':
-                # escape : quit
-                return 'exit'
-
-            return 'no-turn'
 
 
 def is_blocked(x, y):
@@ -278,15 +347,19 @@ def is_visible_tile(x, y):
 
 def make_field():
     global field
+    rooms = []
+
+    # # Settings
+    # The largest height or width of a room
+    room_max = 13
+    # The smallest h or w
+    room_min = 5
+    # Maximum number of rooms a map may generate
+    room_num = 30
 
     # Create a 2D array of Tiles
     field = [
         [Tile(True) for y in range(field_height)] for x in range(field_width)]
-
-    room_max = 13
-    room_min = 5
-    room_num = 30
-    rooms = []
 
     for r in range(room_num):
         w = randint(room_min, room_max)
@@ -297,13 +370,14 @@ def make_field():
         this_room = Rect(x, y, w, h)
         fail = False
 
+        # Check for overlapping rooms
         for other_room in rooms:
             if this_room.intersect(other_room):
                 fail = True
                 break
 
+        # If this room doesn't overlap others, use it
         if not fail:
-            # If this room doesn't overlap others, use it
             create_room(this_room)
 
             try:
@@ -318,40 +392,15 @@ def make_field():
             place_objects(this_room)
             rooms.append(this_room)
 
+    # The player starts in the first room in the list
     (startx, starty) = rooms[0].center()
     player.x, player.y = startx, starty
 
-
-def message(new_msg, color=colors.white):
-    new_msg_lines = textwrap.wrap(new_msg, msg_width)
-
-    for line in new_msg_lines:
-        if len(game_msgs) == msg_height:
-            del game_msgs[0]
-
-        game_msgs.append((line, color))
-
-
-# Death mechanics
-def player_death(player):
-    global game_state
-    message('...and You Dead.')
-    player.color = colors.dark_red
-    player.char = 'F'
-    # Game over, dood.
-    game_state = 'dead'
-
-
-def monster_death(monster):
-    message(f'{monster.name.capitalize()} is slain!')
-    monster.name = f'what remains of {monster.name}'
-    monster.char = '%'
-    monster.color = colors.dark_red
-    monster.send_to_back()
-    # Disable the important mechanics on this entity
-    monster.blocks = False
-    monster.fighter = None
-    monster.ai = None
+    # The stairs on in the last room in the list
+    (endx, endy) = rooms[-1].center()
+    stairs = Entity(endx, endy, '\\', 'stairs', colors.white)
+    objects.append(stairs)
+    stairs.send_to_back()
 
 
 def place_objects(room):
@@ -366,20 +415,33 @@ def place_objects(room):
         ai_monster = BasicMonster()
 
         if not is_blocked(x, y):
+
             # 20% orc, 30% troll, 50% kobold
             choice = randint(0, 100)
             if choice < 20:
-                monster = Entity(x, y, 'o', 'orc',
-                                 colors.desaturated_green, blocks=True,
-                                 fighter=fighter_monster, ai=ai_monster)
+                monster_char = 'o'
+                monster_name = 'orc'
+                monster_color = colors.desaturated_green
+                monster_stats = Fighter(
+                    hp=12, defense=1, power=3, xp=11, death_func=monster_death)
+
             elif choice < 50:
-                monster = Entity(x, y, 'T', 'troll',
-                                 colors.darker_green, blocks=True,
-                                 fighter=fighter_monster, ai=ai_monster)
+                monster_char = 'T'
+                monster_name = 'troll'
+                monster_color = colors.darker_green
+                monster_stats = Fighter(
+                    hp=10, defense=1, power=4, xp=8, death_func=monster_death)
+
             else:
-                monster = Entity(x, y, 'k', 'kobold',
-                                 colors.light_grey, blocks=True,
-                                 fighter=fighter_monster, ai=ai_monster)
+                monster_char = 'k'
+                monster_name = 'kobold'
+                monster_color = colors.dark_azure
+                monster_stats = Fighter(
+                    hp=8, defense=0, power=3, xp=5, death_func=monster_death)
+
+            monster = Entity(x, y, monster_char, monster_name,
+                             monster_color, blocks=True,
+                             fighter=monster_stats, ai=ai_monster)
 
             objects.append(monster)
 
@@ -392,11 +454,238 @@ def place_objects(room):
 
         # Do not place items on blocked areas
         if not is_blocked(x, y):
-            item_component = Item()
-            item = Entity(
-                x, y, '!', 'healing potion', colors.violet, item=item_component)
+            rand_item = randint(0, 100)
+
+            # 70% minor heal
+            if rand_item < 70:
+                item_char = '!'
+                item_color = colors.light_violet
+                item_name = 'Minor Potion'
+                item_module = Item(use_func=light_heal)
+
+            # 30% Magic Missile
+            else:
+                item_char = '#'
+                item_color = colors.light_blue
+                item_name = 'Scroll of Minor Magic Missile'
+                item_module = Item(use_func=light_missile)
+
+            item = Entity(x, y, item_char, item_name,
+                          item_color, item=item_module)
             objects.append(item)
             item.send_to_back()
+
+
+def next_level():
+    global fov_recompute
+    global dungeon_level
+
+    fov_recompute = True
+    dungeon_level += 1
+
+    player.fighter.heal(player.fighter.max_hp // 2)
+
+    message('During a calm moment, you find time to rest.', colors.light_green)
+    message('Back to work...', colors.red)
+
+    make_field()
+
+
+# # # # # # # # # # # # # # # # # # # #
+#   Player Interaction
+# # # # # # # # # # # # # # # # # # # #
+
+
+def get_names_under_mouse():
+    """Returns the name of an Entity underneath the player's mouse"""
+
+    global visible_tiles
+
+    (x, y) = mouse_coord
+    names = [obj.name for obj in objects
+             if obj.x == x and obj.y == y and (obj.x, obj.y) in visible_tiles]
+    names = ', '.join(names)
+    return names.capitalize()
+
+
+def handle_keys():
+    """Checks the player's inputs every frame.
+    Returns 'no-turn' if the player did not take an action.
+    """
+
+    global fov_recompute
+    global mouse_coord
+
+    keypress = False
+    for event in tdl.event.get() :
+        if event.type == 'KEYDOWN':
+            user_input = event
+            keypress = True
+        if event.type == 'MOUSEMOTION':
+            mouse_coord = event.cell
+
+    if not keypress:
+        return 'no-turn'
+
+    if game_state == 'play':
+        # # Actions which take a turn
+        # Move the player with the arrow keys
+        if user_input.key == 'UP':
+            player_move(0, -1)
+        elif user_input.key == 'DOWN':
+            player_move(0, 1)
+        elif user_input.key == 'LEFT':
+            player_move(-1, 0)
+        elif user_input.key == 'RIGHT':
+            player_move(1, 0)
+        elif user_input.key == 'TAB':
+            message('You twiddle your thumbs')
+
+        else:
+            # # Actions which do not take a turn
+            # shift : pick up item beneath player
+
+            if user_input.text == '\\':
+                next_level()
+
+            if user_input.key == 'SHIFT':
+                for obj in objects:
+                    if obj.x == player.x and obj.y == player.y and obj.item:
+                        obj.item.pick_up()
+                        break
+
+            # i : use an item from inventory
+            if user_input.text == 'i':
+                chosen_item = inventory_menu(
+                    'Choose an item with a-z, any other to cancel\n')
+                if chosen_item is not None:
+                    chosen_item.use()
+
+            # d : drop an item from inventory
+            if user_input.text == 'd':
+                chosen_item = inventory_menu(
+                    'Choose an item with a-z, any other to cancel\n')
+                if chosen_item is not None:
+                    chosen_item.drop()
+
+            # esc : quit
+            if user_input.key == 'ESCAPE':
+                return 'exit'
+
+            return 'no-turn'
+
+
+def inventory_menu(header):
+    """Displays the character's inventory as a selectable menu
+    Returns the index of the item selected
+    Returns None if no selection or no items
+    """
+
+    if len(inventory) == 0:
+        options = ['Inventory is empty']
+    else:
+        options = [item.name for item in inventory]
+
+    index = menu(header, options, inventory_width)
+
+    if index is None or len(inventory) == 0:
+        return None
+    return inventory[index].item
+
+
+def menu(header, options, width):
+    """Creates a menu screen which is displayed over the main game
+    Returns the index of the option selected
+    """
+
+    if len(options) > 26:
+        raise ValueError('Cannot have more than 26 options')
+
+    header_wrapped = []
+    for header_line in header.splitlines():
+        header_wrapped.extend(textwrap.wrap(header_line, width))
+    header_height = len(header_wrapped)
+    height = len(options) + header_height
+
+    window = tdl.Console(width, height)
+    window.draw_rect(0, 0, width, height, None, fg=colors.white, bg=None)
+    for i, line in enumerate(header_wrapped):
+        window.draw_str(0, 0+i, header_wrapped[i])
+
+    y = header_height
+    letter_index = ord('a')
+    for option_text in options:
+        text = f'({chr(letter_index)}) {option_text}'
+        window.draw_str(0, y, text, bg=None)
+        y += 1
+        letter_index += 1
+
+    x = screen_width // 2 - width // 2
+    y = screen_height // 2 - height // 2
+    root.blit(window, x, y, width, height, 0, 0)
+
+    tdl.flush()
+    key = tdl.event.key_wait()
+    key_char = key.char
+    if key_char == '':
+        key_char = ' '
+
+    index = ord(key_char) - ord('a')
+    if 0 <= index < len(options):
+        return index
+    return None
+
+
+def message(new_msg, color=colors.white):
+    """Displays a message on the HUD in the color passed"""
+
+    new_msg_lines = textwrap.wrap(new_msg, msg_width)
+
+    for line in new_msg_lines:
+        if len(game_msgs) == msg_height:
+            del game_msgs[0]
+
+        game_msgs.append((line, color))
+
+
+def target_tile(max_range=None):
+    """Returns the position of a tile on left-click if in FOV or Range
+    Returns (None, None) on right click or esc
+    """
+
+    global mouse_coord
+
+    while True:
+        tdl.flush()
+        clicked = False
+
+        for event in tdl.event.get():
+            if event.type == 'MOUSEMOTION':
+                mouse_coord = event.cell
+            if event.type == 'MOUSEDOWN' and event.button == 'LEFT':
+                clicked = True
+            elif ((event.type == 'MOUSEDOWN' and event.button == 'RIGHT')
+               or (event.type == 'KEYDOWN' and event.key == 'ESCAPE')):
+                return (None, None)
+        render_all()
+
+        x = mouse_coord[0]
+        y = mouse_coord[1]
+        if (clicked
+                and mouse_coord in visible_tiles
+                and (max_range is None or player.distance(x, y) <= max_range)):
+            return mouse_coord
+
+
+def target_monster(max_range=None):
+    while True:
+        (x, y) = target_tile(max_range)
+        if x is None:
+            return None
+
+        for obj in objects:
+            if obj == x and obj.y == y and obj.fighter and obj != player:
+                return obj
 
 
 def player_move(dx, dy):
@@ -423,7 +712,8 @@ def player_move(dx, dy):
 
 def render_bar(x, y,total_width, name, value, maximum,
                bar_color,bg_color, text_color):
-    """Render a bar which visually represents some stat"""
+    """Render a bar which visually represents some stat
+    and draw it to the `panel` HUD element"""
 
     bar = int(float(value) / maximum * total_width)
 
@@ -438,6 +728,8 @@ def render_bar(x, y,total_width, name, value, maximum,
 
 
 def render_all():
+    """render everything to the screen"""
+
     global fov_recompute
     global visible_tiles
 
@@ -508,7 +800,7 @@ tdl.setFPS(fps_limit)
 field_width = 80
 field_height = 43
 
-# HUD settings
+# # HUD settings
 # Stats
 bar_width = 20
 panel_height = 7
@@ -518,8 +810,10 @@ msg_x = bar_width + 2
 msg_width = screen_width - bar_width -2
 msg_height = panel_height -1
 game_msgs = []
+# Inventory
+inventory_width = 50
 
-# Tile colors
+# # Tile colors
 # Unlit tiles
 c_dark_wall = (0, 0, 100)
 c_dark_gnd = (50, 50, 150)
@@ -528,7 +822,7 @@ c_light_wall = (130, 110, 50)
 c_light_gnd = (200, 180, 50)
 
 # Set the font
-# tdl.set_font('fontfile.png', greyscale=True, altLayout=True)
+tdl.set_font('arial12x12.png', greyscale=True, altLayout=True)
 
 # tdl FOV settings
 fov_algo = 'SHADOW'
@@ -558,9 +852,14 @@ game_state = 'play'
 player_action = None
 
 # Create the player object
-fighter_mod = Fighter(hp=30, defense=2, power=5, death_func=player_death)
+fighter_mod = Fighter(hp=30, defense=2, power=5, xp=0, death_func=player_death)
 player = Entity(
     0, 0, '@', 'player', colors.white, blocks=True, fighter=fighter_mod)
+
+player.level = 1
+
+level_up_base = 200
+level_up_
 
 objects = [player]
 
@@ -574,6 +873,8 @@ inventory = []
 
 # Welcome message
 message('Welcome to the Warehouse, nerd.', colors.red)
+
+dungeon_level = 1
 
 while not tdl.event.is_window_closed():
     render_all()

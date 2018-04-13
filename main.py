@@ -410,8 +410,7 @@ def place_objects(room):
     for i in range(num_monsters):
         x = randint(room.x1 + 1, room.x2 - 1)
         y = randint(room.y1 + 1, room.y2 - 1)
-        fighter_monster = Fighter(
-            hp=10, defense=0, power=3, death_func=monster_death)
+
         ai_monster = BasicMonster()
 
         if not is_blocked(x, y):
@@ -477,17 +476,23 @@ def place_objects(room):
 
 
 def next_level():
-    global fov_recompute
     global dungeon_level
+    global fov_recompute
+    global objects
 
     fov_recompute = True
     dungeon_level += 1
 
     player.fighter.heal(player.fighter.max_hp // 2)
 
-    message('During a calm moment, you find time to rest.', colors.light_green)
+    next_lvl_msg = 'During a calm moment, you find time to rest.\n'
+    next_lvl_msg += f'You regained {player.fighter.max_hp // 2} hp.'
+    message(next_lvl_msg, colors.light_green)
     message('Back to work...', colors.red)
 
+    objects = [player]
+    con.clear(fg=colors.black, bg=colors.black)
+    root.clear(fg=colors.black, bg=colors.black)
     make_field()
 
 
@@ -777,12 +782,24 @@ def render_all():
         panel.draw_str(msg_x, y, line, bg=None, fg=color)
         y += 1
 
-    # Rerender the bars
+    # Re-render the stats displays
+
+    # Monster under mouse
+    panel.draw_str(1, 0, get_names_under_mouse(), bg=None, fg=colors.light_gray)
+
     # Player's HP
     render_bar(1, 1, bar_width, 'HP', player.fighter.hp, player.fighter.max_hp,
                colors.light_red, colors.darker_red, colors.white)
 
-    panel.draw_str(1, 0, get_names_under_mouse(), bg=None, fg=colors.light_gray)
+    # # TODO: Player's MP
+
+    # Dungeon Level
+    panel.draw_str(1, 6, f'Floor: {dungeon_level}',
+                   bg=colors.white, fg=colors.black)
+
+    # Player Level
+    panel.draw_str(10, 6, f'Level: {player.level}',
+                   bg=colors.white, fg=colors.black)
 
     # Blit the newly rendered bars to `root`
     root.blit(panel, 0, panel_y, screen_width, panel_height, 0, 0)
@@ -859,7 +876,7 @@ player = Entity(
 player.level = 1
 
 level_up_base = 200
-level_up_
+level_up_factor = 150
 
 objects = [player]
 

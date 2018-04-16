@@ -52,6 +52,7 @@ class Entity:
         self.color = color
         self.name = name
         self.blocks = blocks
+
         self.fighter = fighter
         if self.fighter:
             self.fighter.owner = self
@@ -115,12 +116,17 @@ class Fighter:
     take_damage(<amount>) - subtracts <amount> hp from self
     """
 
-    def __init__(self, hp, defense, power, xp, death_func=None):
+    # TODO: Magic Defense
+
+    def __init__(self, hp, defense, power, xp, mp=0, mag=0, death_func=None):
         self.max_hp = hp
         self.hp = hp
         self.defense = defense
         self.power = power
         self.xp = xp
+        self.max_mp = mp
+        self.mp = mp
+        self.mag = mag
         self.death_func = death_func
 
     def attack(self, target):
@@ -135,13 +141,16 @@ class Fighter:
             atk_msg += f' attack bounced off {target.name}'
             message(atk_msg, colors.light_gray)
 
-    def heal(self, amount):
-        self.hp += amount
+    def heal(self, health, mana=0):
+        self.hp += health
+        self.mp += mana
         # No over-healing
         if self.hp > self.max_hp:
             self.hp = self.max_hp
+        if self.mp > self.max_mp:
+            self.mp = self.max_mp
 
-    def take_damage(self, damage) :
+    def take_damage(self, damage):
         damage = damage
 
         if damage > 0 :
@@ -167,7 +176,7 @@ class Item:
         inventory.remove(self.owner)
         self.owner.x = player.x
         self.owner.y = player.y
-        message(f'You place the {self.name} on the ground', colors.yellow)
+        message(f'You place the {self.owner.name} on the ground', colors.yellow)
 
     def pick_up(self):
         # Add to inventory
@@ -205,33 +214,52 @@ def closest_monster(max_range):
     return closest_enemy
 
 
-def light_heal():
-    """Increases player HP by 2 to 5 points"""
+def light_heal(heal_min=2, heal_max=5, mp_cost=0):
+    """Increases player HP by (2 to 5) points"""
 
     if player.fighter.hp == player.fighter.max_hp:
         message('You are already at full HP', colors.light_red)
         return 'cancel'
-    heal_amount = randint(2, 5)
+
+    if player.fighter.mp < mp_cost:
+        message(f'Not enough mp! ({mp_cost})', colors.yellow)
+        return 'cancel'
+
+    player.fighter.mp -= mp_cost
+
+    heal_amount = randint(heal_min, heal_max)
     healmsg = f'On a scale of 0 to {player.fighter.max_hp}, you\'re feeling'
     healmsg += f' about {heal_amount} better than you did.'
     message(healmsg, colors.azure)
     player.fighter.heal(heal_amount)
 
 
-def light_missile():
-    """Deals (8) damage to the nearest enemy in the FOV"""
+def magic_missile(damage=8, mp_cost=0):
+    """Deals damage to the nearest enemy in the FOV"""
+
+    if player.fighter.mp < mp_cost:
+        message('You do not have enough MP to cast this spell')
+        return 'cancel'
 
     monster = closest_monster(fov_radius)
 
     if monster is None:
-        message('You cannot cast Magic Missle at the Darkness', colors.red)
+        message('You cannot cast Magic Missile at the Darkness', colors.red)
         return 'cancel'
 
+    player.fighter.mp -= mp_cost
     atk_msg = f'A pale blue energy violently strikes the {monster.name}'
-    atk_msg += f' for 8 points of damage'
+    atk_msg += f' for {damage} points of damage'
     message(atk_msg, colors.light_blue)
-    monster.fighter.take_damage(8)
+    monster.fighter.take_damage(damage)
 
+
+def mana_recovery():
+    """Item module for recovering the player's MP"""
+
+    rec_mp = randint(1, 3)
+    player.fighter.heal(health=0, mana=rec_mp)
+    message(f'You recovered {rec_mp} MP.')
 
 def player_death(player):
     """Displays player's corpse and a Game Over message"""
@@ -422,21 +450,21 @@ def place_objects(room):
                 monster_name = 'orc'
                 monster_color = colors.desaturated_green
                 monster_stats = Fighter(
-                    hp=12, defense=1, power=3, xp=11, death_func=monster_death)
+                    hp=12, defense=1, power=3, xp=50, death_func=monster_death)
 
             elif choice < 50:
                 monster_char = 'T'
                 monster_name = 'troll'
                 monster_color = colors.darker_green
                 monster_stats = Fighter(
-                    hp=10, defense=1, power=4, xp=8, death_func=monster_death)
+                    hp=10, defense=1, power=4, xp=50, death_func=monster_death)
 
             else:
                 monster_char = 'k'
                 monster_name = 'kobold'
                 monster_color = colors.dark_azure
                 monster_stats = Fighter(
-                    hp=8, defense=0, power=3, xp=5, death_func=monster_death)
+                    hp=8, defense=0, power=3, xp=25, death_func=monster_death)
 
             monster = Entity(x, y, monster_char, monster_name,
                              monster_color, blocks=True,
@@ -455,19 +483,27 @@ def place_objects(room):
         if not is_blocked(x, y):
             rand_item = randint(0, 100)
 
-            # 70% minor heal
-            if rand_item < 70:
+            # TODO: scaling randomization for potions
+            # 50% minor heal
+            if rand_item < 50:
                 item_char = '!'
                 item_color = colors.light_violet
                 item_name = 'Minor Potion'
                 item_module = Item(use_func=light_heal)
 
             # 30% Magic Missile
-            else:
+            elif rand_item < 50 + 30:
                 item_char = '#'
                 item_color = colors.light_blue
                 item_name = 'Scroll of Minor Magic Missile'
-                item_module = Item(use_func=light_missile)
+                item_module = Item(use_func=magic_missile)
+
+            # 20% Minor Mana Potion
+            else:
+                item_char = '!'
+                item_color = colors.light_azure
+                item_name = 'Minor Mana Potion'
+                item_module = Item(use_func=mana_recovery)
 
             item = Entity(x, y, item_char, item_name,
                           item_color, item=item_module)
@@ -476,21 +512,21 @@ def place_objects(room):
 
 
 def next_level():
-    global dungeon_level
-    global fov_recompute
-    global objects
+    global dungeon_level, fov_recompute, objects
 
     fov_recompute = True
     dungeon_level += 1
+    objects = [player]
 
-    player.fighter.heal(player.fighter.max_hp // 2)
+    player.fighter.heal(health=player.fighter.max_hp // 2,
+                         mana=player.fighter.max_mp // 2)
 
     next_lvl_msg = 'During a calm moment, you find time to rest.\n'
-    next_lvl_msg += f'You regained {player.fighter.max_hp // 2} hp.'
+    next_lvl_msg += f'You regained {player.fighter.max_hp // 2} hp.\n'
+    next_lvl_msg += f'and {player.fighter.max_mp // 2} mp.'
     message(next_lvl_msg, colors.light_green)
     message('Back to work...', colors.red)
 
-    objects = [player]
     con.clear(fg=colors.black, bg=colors.black)
     root.clear(fg=colors.black, bg=colors.black)
     make_field()
@@ -499,6 +535,93 @@ def next_level():
 # # # # # # # # # # # # # # # # # # # #
 #   Player Interaction
 # # # # # # # # # # # # # # # # # # # #
+
+
+def player_regen():
+    """ Player regenerates (regen_factor * 0.005) * HP or MP every turn
+    if (regen_factor * 0.005) < 1,
+    count until there is at least one to give to the player
+    """
+
+    global regen_hp, regen_mp
+
+    regen_hp += (player.regen_factor * 0.001) * player.fighter.max_hp
+    regen_mp += (player.regen_factor * 0.001) * player.fighter.max_mp
+
+    if regen_hp >= 1:
+        player.fighter.heal(health=int(regen_hp))
+        regen_hp -= int(regen_hp)
+
+    if regen_mp >= 1:
+        player.fighter.heal(health=0, mana=int(regen_mp))
+        regen_mp -= int(regen_mp)
+
+
+def cast_spell():
+    if len(player.spells) == 0:
+        spell_menu = ["You don't know any spells"]
+    else:
+        spell_menu = [s for s in player.spells]
+
+    spell = menu("Choose a spell to cast\n",
+                 spell_menu,
+                 40)
+    if spell is None:
+        return 'cancel'
+    elif player.spells[spell] == 'Magic Missile':
+        magic_missile(int(player.fighter.mag * 0.5), 5)
+    elif player.spells[spell] == 'Minor Heal':
+        light_heal(int(player.fighter.mag * 0.25),
+                   int(player.fighter.mag * 0.75),
+                   3)
+    else:
+        return 'cancel'
+
+
+def check_level_up():
+    level_up_xp = level_up_base + player.level * level_up_factor
+    if player.fighter.xp >= level_up_xp:
+        player.level += 1
+        player.fighter.xp -= level_up_xp
+        message('You feel stronger!', colors.yellow)
+
+        # The basic stats
+        # TODO: Scaling stat advancement
+        choice_list = [f'HP : {player.fighter.max_hp} (+ 20)',
+                       f'MP : {player.fighter.max_mp} (+ 5)',
+                       f'STR: {player.fighter.power} (+ 1)',
+                       f'MAG: {player.fighter.mag} (+ 1)',
+                       f'DEF: {player.fighter.defense} (+ 1)']
+
+        # Add available skills and spells
+        if player.level >= 2 and 'Minor Heal' not in player.spells:
+            choice_list.append('Minor Heal')
+        if player.level >= 5 and 'Magic Missile' not in player.spells:
+            choice_list.append('Magic Missile')
+
+        choice = None
+        while choice is None:
+            choice = menu('Promotion Get!\n',
+                          choice_list,
+                          level_screen_width)
+
+            # TODO: Scaling stat advancement
+            if choice == 0:
+                player.fighter.max_hp += 20
+                player.fighter.hp += 20
+            elif choice == 1:
+                player.fighter.max_mp += 5
+                player.fighter.mp += 5
+            elif choice == 2:
+                player.fighter.power += 1
+            elif choice == 3:
+                player.fighter.mag += 1
+            elif choice == 4:
+                player.fighter.defense += 1
+            elif choice is None:
+                pass
+            elif choice_list[choice] not in player.spells:
+                player.spells.append(choice_list[choice])
 
 
 def get_names_under_mouse():
@@ -518,8 +641,7 @@ def handle_keys():
     Returns 'no-turn' if the player did not take an action.
     """
 
-    global fov_recompute
-    global mouse_coord
+    global fov_recompute, mouse_coord
 
     keypress = False
     for event in tdl.event.get() :
@@ -545,31 +667,36 @@ def handle_keys():
             player_move(1, 0)
         elif user_input.key == 'TAB':
             message('You twiddle your thumbs')
+        elif user_input.text == 's' :
+            if cast_spell() == 'cancel':
+                return 'no-turn'
 
         else:
-            # # Actions which do not take a turn
-            # shift : pick up item beneath player
 
+            # \ descends to the next level
             if user_input.text == '\\':
                 next_level()
 
+            # shift : pick up item beneath player
             if user_input.key == 'SHIFT':
                 for obj in objects:
                     if obj.x == player.x and obj.y == player.y and obj.item:
                         obj.item.pick_up()
                         break
 
+            # # a-z are on the same if check because we do not want
+            # # them triggered when using their menus
             # i : use an item from inventory
             if user_input.text == 'i':
                 chosen_item = inventory_menu(
-                    'Choose an item with a-z, any other to cancel\n')
+                    'Choose an item to use, esc to cancel\n')
                 if chosen_item is not None:
                     chosen_item.use()
 
             # d : drop an item from inventory
-            if user_input.text == 'd':
+            elif user_input.text == 'd':
                 chosen_item = inventory_menu(
-                    'Choose an item with a-z, any other to cancel\n')
+                    'Choose an item to drop, esc to cancel\n')
                 if chosen_item is not None:
                     chosen_item.drop()
 
@@ -578,7 +705,6 @@ def handle_keys():
                 return 'exit'
 
             return 'no-turn'
-
 
 def inventory_menu(header):
     """Displays the character's inventory as a selectable menu
@@ -603,8 +729,12 @@ def menu(header, options, width):
     Returns the index of the option selected
     """
 
+    global game_state
+
     if len(options) > 26:
         raise ValueError('Cannot have more than 26 options')
+
+    game_state = 'menu'
 
     header_wrapped = []
     for header_line in header.splitlines():
@@ -636,6 +766,8 @@ def menu(header, options, width):
         key_char = ' '
 
     index = ord(key_char) - ord('a')
+
+    game_state = 'play'
     if 0 <= index < len(options):
         return index
     return None
@@ -791,7 +923,9 @@ def render_all():
     render_bar(1, 1, bar_width, 'HP', player.fighter.hp, player.fighter.max_hp,
                colors.light_red, colors.darker_red, colors.white)
 
-    # # TODO: Player's MP
+    # Player's MP
+    render_bar(1, 2, bar_width, 'MP', player.fighter.mp, player.fighter.max_mp,
+               colors.light_blue, colors.darker_red, colors.white)
 
     # Dungeon Level
     panel.draw_str(1, 6, f'Floor: {dungeon_level}',
@@ -799,6 +933,10 @@ def render_all():
 
     # Player Level
     panel.draw_str(10, 6, f'Level: {player.level}',
+                   bg=colors.white, fg=colors.black)
+
+    # Player XP
+    panel.draw_str(10, 5, f'xp: {player.fighter.xp}',
                    bg=colors.white, fg=colors.black)
 
     # Blit the newly rendered bars to `root`
@@ -869,14 +1007,23 @@ game_state = 'play'
 player_action = None
 
 # Create the player object
-fighter_mod = Fighter(hp=30, defense=2, power=5, xp=0, death_func=player_death)
+fighter_mod = Fighter(hp=30, defense=2, power=5, xp=0,
+                      mp=15, mag=5, death_func=player_death)
 player = Entity(
-    0, 0, '@', 'player', colors.white, blocks=True, fighter=fighter_mod)
+    0, 0, '@', 'player', colors.white, blocks=True,
+    fighter=fighter_mod)
 
+# # Player progression
 player.level = 1
-
 level_up_base = 200
 level_up_factor = 150
+level_screen_width = 40
+
+player.spells = []
+
+regen_hp = 0
+regen_mp = 0
+player.regen_factor = 1
 
 objects = [player]
 
@@ -897,14 +1044,17 @@ while not tdl.event.is_window_closed():
     render_all()
     tdl.flush()
 
+    check_level_up()
+
     for obj in objects:
         obj.clear()
 
-    # Wait for player action
     player_action = handle_keys()
 
+    # # Actions which only happen after the player acts
     # Monsters' turn
     if game_state == 'play' and player_action != 'no-turn':
+        player_regen()
         for obj in objects:
             if obj.ai:
                 obj.ai.take_turn()

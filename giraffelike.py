@@ -463,51 +463,81 @@ def make_field():
     stairs.send_to_back()
 
 
+monster_dict = {
+    'kobold' : {
+        'char' : 'k',
+        'color' : colors.dark_azure,
+        'fighter': {
+            'hp' : 8,
+            'defense' : 0,
+            'power' : 3,
+            'xp' : 500,
+            'mp' : 0,
+            'mag' : 0,
+            'death_func' : monster_death
+        },
+        'name' : 'kobold',
+    },
+    'orc' : {
+        'char' : 'o',
+        'color' : colors.desaturated_green,
+        'fighter': {
+            'hp' : 12,
+            'defense' : 1,
+            'power' : 3,
+            'xp' : 40,
+            'mp' : 0,
+            'mag' : 0,
+            'death_func' : monster_death
+        },
+        'name' : 'orc',
+    },
+    'troll' : {
+        'char' : 'T',
+        'color' : colors.darker_green,
+        'fighter': {
+            'hp' : 15,
+            'defense' : 2,
+            'power' : 5,
+            'xp' : 50,
+            'mp' : 0,
+            'mag' : 0,
+            'death_func' : monster_death
+        },
+        'name' : 'troll',
+    }
+}
+
+
 def place_objects(room):
     global dungeon_level
+
     # Generate the monsters
+    # TODO: Method for generating long dungeon escalation?
+    # TODO: dungeon escalation for monster stats
     monster_max = dungeon_escalation([[2, 1], [3, 4], [5, 6]])
     num_monsters = randint(0, monster_max)
 
     monster_chances = {'kobold' : 60,
                        'orc' : dungeon_escalation([[20, 3], [30, 5], [60, 7]]),
                        'troll' : dungeon_escalation(
-                           [[15, 4], [30, 6], [50, 8]])}
+                           [[15, 4], [30, 6], [45, 8]])}
 
     for i in range(num_monsters):
         x = randint(room.x1 + 1, room.x2 - 1)
         y = randint(room.y1 + 1, room.y2 - 1)
 
-        ai_monster = BasicMonster()
-
         if not is_blocked(x, y):
-            this_monster = randomizer(monster_chances)
+            this_monster = monster_dict[randomizer(monster_chances)]
+            this_ai = BasicMonster()
 
-            if this_monster == 'orc':
-                monster_char = 'o'
-                monster_name = 'orc'
-                monster_color = colors.desaturated_green
-                monster_stats = Fighter(
-                    hp=12, defense=1, power=3, xp=50, death_func=monster_death)
-
-            elif this_monster == 'troll':
-                monster_char = 'T'
-                monster_name = 'troll'
-                monster_color = colors.darker_green
-                monster_stats = Fighter(
-                    hp=10, defense=1, power=4, xp=50, death_func=monster_death)
-
-            else:
-                # if this monster == 'kobold':
-                monster_char = 'k'
-                monster_name = 'kobold'
-                monster_color = colors.dark_azure
-                monster_stats = Fighter(
-                    hp=8, defense=0, power=3, xp=25, death_func=monster_death)
-
-            monster = Entity(x, y, monster_char, monster_name,
-                             monster_color, blocks=True,
-                             fighter=monster_stats, ai=ai_monster)
+            monster = Entity(x, y,
+                             this_monster['char'],
+                             this_monster['name'],
+                             this_monster['color'],
+                             blocks=True,
+                             fighter=Fighter(**this_monster['fighter']),
+                             ai=this_ai)
 
             objects.append(monster)
 
@@ -689,21 +719,32 @@ def check_level_up():
         player.fighter.xp -= level_up_xp
         message('You feel stronger!', colors.yellow)
 
+        # Scaling stat advancement
+
+        # HP
         adv_hp_count = 0
         adv_hp = (player.fighter.max_hp * 0.15) - (adv_hp_count * 0.005)
-        if adv_hp < player.fighter.max_hp * 0.02:
-            adv_hp = int(player.fighter.max_hp * 0.05)
+        if adv_hp < player.fighter.max_hp * 0.04:
+            adv_hp = int(player.fighter.max_hp * 0.04)
         else:
-            adv_hp = int((player.fighter.max_hp * 0.15)
-                         - (adv_hp_count * 0.005))
+            adv_hp = int(adv_hp)
 
+        # MP
+        adv_mp_count = 0
+        adv_mp = (player.fighter.max_mp * 0.2) - (adv_mp_count * 0.0075)
+        if adv_mp < player.fighter.max_mp * 0.04:
+            adv_mp = int(player.fighter.max_mp * 0.04)
+        else:
+            adv_mp = int(adv_mp)
 
-        # The basic stats
-        # TODO: Scaling stat advancement
-        # what's the formula for stat advancement?
+        # STR
+        # TODO:
+        adv_str_count = 0
+        adv_str = 2 if count % 0 == 0 else 1
+
         choice_list = [f'HP : {player.fighter.max_hp} (+ {adv_hp})',
-                       f'MP : {player.fighter.max_mp} (+ 5)',
-                       f'STR: {player.fighter.power} (+ 1)',
+                       f'MP : {player.fighter.max_mp} (+ {adv_mp})',
+                       f'STR: {player.fighter.power} (+ {adv_str})',
                        f'MAG: {player.fighter.mag} (+ 1)',
                        f'DEF: {player.fighter.defense} (+ 1)',
                        f'REG: {player.regen_factor} (+ 1)']
@@ -714,29 +755,30 @@ def check_level_up():
         if player.level >= 5 and 'Magic Missile' not in player.spells:
             choice_list.append('Magic Missile')
 
-        choice = None
-        while choice is None:
+        choice = 'cancel'
+        while choice is 'cancel':
             choice = menu('Promotion Get!\n',
                           choice_list,
                           level_screen_width)
 
-            # TODO: Scaling stat advancement
             if choice == 0:
                 player.fighter.max_hp += adv_hp
                 player.fighter.hp += adv_hp
                 adv_hp_count += 1
             elif choice == 1:
-                player.fighter.max_mp += 5
-                player.fighter.mp += 5
+                player.fighter.max_mp += adv_mp
+                player.fighter.mp += adv_mp
+                adv_mp_count += 1
             elif choice == 2:
-                player.fighter.power += 1
+                player.fighter.power += adv_str
+                adv_str_count += 1
             elif choice == 3:
                 player.fighter.mag += 1
             elif choice == 4:
                 player.fighter.defense += 1
             elif choice == 5:
                 player.regen_factor += 1
-            elif choice is None:
+            elif choice is 'cancel':
                 pass
             elif choice_list[choice] not in player.spells:
                 player.spells.append(choice_list[choice])
@@ -1122,7 +1164,7 @@ con = tdl.Console(field_width, field_height)
 panel = tdl.Console(screen_width, panel_height)
 
 # Create the player object
-fighter_mod = Fighter(hp=30, defense=2, power=5, xp=0,
+fighter_mod = Fighter(hp=50, defense=1, power=5, xp=349,
                       mp=15, mag=5, death_func=player_death)
 player = Entity(
     0, 0, '@', 'player', colors.white, blocks=True,

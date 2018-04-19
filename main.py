@@ -517,14 +517,14 @@ def place_objects(room):
     # eg item_dict = {'item name' : {'item_char' : '#'}}
     # item_dict['item']['item_char'] == '#'
 
-    max_items = dungeon_escalation([[1, 1], [2, 4], [3, 7]])
+    max_items = dungeon_escalation([[1, 1], [2, 5], [3, 10]])
     num_items = randint(0, max_items)
 
-    item_chances = {'Minor Healing Potion' : 35,
+    item_chances = {'Minor Healing Potion' : 30,
                     'Minor Mana Potion' : dungeon_escalation(
-                        [[15, 3], [25, 5], [35, 7]]),
+                        [[15, 5], [20, 10]]),
                     'Scroll of Minor Magic Missile' : dungeon_escalation(
-                        [[10, 2], [25, 4], [35, 6]])}
+                        [[15, 3], [20, 5], [25, 10]])}
 
     for i in range(num_items):
         x = randint(room.x1 + 1, room.x2 - 1)
@@ -627,14 +627,13 @@ def next_level():
     dungeon_level += 1
     objects = [player]
 
-    player.fighter.heal(health=player.fighter.max_hp // 2,
-                         mana=player.fighter.max_mp // 2)
+    regen_hp, regen_mp = player_regen()
+    player.fighter.heal(health=regen_hp, mana=regen_mp)
 
-    next_lvl_msg = 'During a calm moment, you find time to rest.'
-    next_lvl_msg += f'You regained {player.fighter.max_hp // 2} hp '
-    next_lvl_msg += f'and {player.fighter.max_mp // 2} mp.'
-    message(next_lvl_msg, colors.light_green)
-    message('Back to work...', colors.red)
+    message('During a calm moment, you find time to rest...', colors.white)
+    message(f'You regained {regen_hp} hp.', colors.light_red)
+    message(f'and {regen_mp} mp.', colors. light_blue)
+    message('Back to work...', colors.chartreuse)
 
     con.clear(fg=colors.black, bg=colors.black)
     root.clear(fg=colors.black, bg=colors.black)
@@ -647,23 +646,15 @@ def next_level():
 
 
 def player_regen():
-    """ Player regenerates (regen_factor * 0.005) * HP or MP every turn
-    if (regen_factor * 0.005) < 1,
-    count until there is at least one to give to the player
+    """ The player regenerates health between each floor
     """
 
-    global regen_hp, regen_mp
+    regen_hp = int(player.fighter.max_hp
+                   * (0.14 + (player.regen_factor * 0.01)))
+    regen_mp = int(player.fighter.max_mp
+                   * (0.14 + (player.regen_factor * 0.01)))
 
-    regen_hp += (player.regen_factor * 0.001) * player.fighter.max_hp
-    regen_mp += (player.regen_factor * 0.001) * player.fighter.max_mp
-
-    if regen_hp >= 1:
-        player.fighter.heal(health=int(regen_hp))
-        regen_hp -= int(regen_hp)
-
-    if regen_mp >= 1:
-        player.fighter.heal(health=0, mana=int(regen_mp))
-        regen_mp -= int(regen_mp)
+    return regen_hp, regen_mp
 
 
 def cast_spell():
@@ -787,6 +778,16 @@ def handle_keys():
             if cast_spell() == 'cancel':
                 return 'no-turn'
 
+        # i : use an item from inventory
+        elif user_input.char == 'i':
+            chosen_item = inventory_menu(
+                'Choose an item to use, esc to cancel\n')
+            if chosen_item == 'cancel':
+                return 'no-turn'
+            else:
+                chosen_item.use()
+
+        # actions which do not consume a turn
         else:
             # \ : descend to the next level
             if user_input.char == '\\':
@@ -798,16 +799,6 @@ def handle_keys():
                     if item.x == player.x and item.y == player.y and item.item:
                         item.item.pick_up()
                         break
-
-            # # TODO: How do we prevent a-z inputs
-            # # TODO: from triggering while in a menu?
-
-            # i : use an item from inventory
-            elif user_input.char == 'i':
-                chosen_item = inventory_menu(
-                    'Choose an item to use, esc to cancel\n')
-                if chosen_item is not None:
-                    chosen_item.use()
 
             # d : drop an item from inventory
             elif user_input.char == 'd':
@@ -827,7 +818,7 @@ def handle_keys():
 def inventory_menu(header):
     """Displays the character's inventory as a selectable menu
     Returns the index of the item selected
-    Returns None if no selection or no items
+    Returns 'cancel' if no selection or no items
     """
 
     if len(inventory) == 0:
@@ -837,8 +828,8 @@ def inventory_menu(header):
 
     index = menu(header, options, inventory_width)
 
-    if index is None or len(inventory) == 0:
-        return None
+    if index is 'cancel' or len(inventory) == 0:
+        return 'cancel'
     return inventory[index].item
 
 
@@ -887,7 +878,7 @@ def menu(header, options, width):
 
     if 0 <= index < len(options):
         return index
-    return None
+    return 'cancel'
 
 
 def message(new_msg, color=colors.white):
@@ -970,7 +961,7 @@ def player_move(dx, dy):
         fov_recompute = True
 
 
-def render_bar(x, y,total_width, name, value, maximum,
+def render_bar(x, y, total_width, name, value, maximum,
                bar_color,bg_color, text_color):
     """Render a bar which visually represents some stat
     and draw it to the `panel` HUD element"""
@@ -1068,10 +1059,11 @@ def render_all():
 
 
 # Screen size
-screen_width = 100
-screen_height = 80
+screen_width = 80
+screen_height = 60
 
 # FPS
+# irrelevant in turn-based, but not harmful
 fps_limit = 20
 tdl.setFPS(fps_limit)
 
@@ -1128,18 +1120,15 @@ player = Entity(
     fighter=fighter_mod)
 
 # Player settings
-game_state = 'play'
 inventory = []
+player.spells = []
 level_up_base = 200
 level_up_factor = 150
 level_screen_width = 40
-mouse_coord = (0, 0)
+# mouse_coord = (0, 0)
 player_action = None
 player.level = 1
 player.regen_factor = 1
-player.spells = []
-regen_hp = 0
-regen_mp = 0
 
 # initialize the field
 dungeon_level = 1
@@ -1150,7 +1139,7 @@ make_field()
 # Welcome message
 message('Welcome to the Warehouse, nerd.', colors.red)
 
-
+game_state = 'play'
 while not tdl.event.is_window_closed():
     render_all()
     tdl.flush()

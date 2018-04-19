@@ -670,15 +670,13 @@ def cast_spell():
     if spell is None or len(player.spells) == 0:
         return 'cancel'
     elif player.spells[spell] == 'Magic Missile':
-        magic_missile_spell = {'damage': int(player.fighter.mag * 0.5),
-                               'mp_cost': 5}
-        magic_missile(**magic_missile_spell)
+        magic_missile(damage=int(player.fighter.mag * 0.5),
+                      mp_cost=5)
 
     elif player.spells[spell] == 'Minor Heal':
-        minor_heal_spell = {'hp_lower': int(player.fighter.mag * 0.25),
-                            'hp_upper': int(player.fighter.mag * 0.75),
-                            'mp_cost': 3}
-        healing(**minor_heal_spell)
+        healing(hp_lower=int(player.fighter.mag * 0.25),
+                hp_upper=int(player.fighter.mag * 0.75),
+                mp_cost=3)
 
     else:
         return 'cancel'
@@ -691,9 +689,19 @@ def check_level_up():
         player.fighter.xp -= level_up_xp
         message('You feel stronger!', colors.yellow)
 
+        adv_hp_count = 0
+        adv_hp = (player.fighter.max_hp * 0.15) - (adv_hp_count * 0.005)
+        if adv_hp < player.fighter.max_hp * 0.02:
+            adv_hp = int(player.fighter.max_hp * 0.05)
+        else:
+            adv_hp = int((player.fighter.max_hp * 0.15)
+                         - (adv_hp_count * 0.005))
+
+
         # The basic stats
         # TODO: Scaling stat advancement
-        choice_list = [f'HP : {player.fighter.max_hp} (+ 20)',
+        # what's the formula for stat advancement?
+        choice_list = [f'HP : {player.fighter.max_hp} (+ {adv_hp})',
                        f'MP : {player.fighter.max_mp} (+ 5)',
                        f'STR: {player.fighter.power} (+ 1)',
                        f'MAG: {player.fighter.mag} (+ 1)',
@@ -714,8 +722,9 @@ def check_level_up():
 
             # TODO: Scaling stat advancement
             if choice == 0:
-                player.fighter.max_hp += 20
-                player.fighter.hp += 20
+                player.fighter.max_hp += adv_hp
+                player.fighter.hp += adv_hp
+                adv_hp_count += 1
             elif choice == 1:
                 player.fighter.max_mp += 5
                 player.fighter.mp += 5

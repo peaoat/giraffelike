@@ -72,6 +72,11 @@ class Entity:
         dy = other.y - self.y
         return math.sqrt(dx ** 2 + dy ** 2)
 
+    def draw(self):
+        if (self.x, self.y) in visible_tiles or \
+                (self.always_visible and field[self.x][self.y].explored):
+            con.draw_char(self.x, self.y, self.char, self.color)
+
     def move(self, dx, dy):
         # If the desired tile is blocked, do not move
         if not is_blocked(self.x + dx, self.y + dy):
@@ -85,11 +90,6 @@ class Entity:
         dx = int(round(dx / distance))
         dy = int(round(dy / distance))
         self.move(dx, dy)
-
-    def draw(self):
-        if (self.x, self.y) in visible_tiles or \
-                (self.always_visible and field[self.x][self.y].explored):
-            con.draw_char(self.x, self.y, self.char, self.color)
 
     def clear(self):
         con.draw_char(self.x, self.y, ' ', self.color)
@@ -418,12 +418,12 @@ def make_field():
 
     # Create a 2D array of Tiles
     field = [
-        [Tile(True) for y in range(field_height)] for x in range(field_width)]
+        [Tile(True) for x in range(field_height)] for y in range(field_width)]
 
     for r in range(room_num):
         w = randint(room_min, room_max)
         h = randint(room_min, room_max)
-        x = randint(0, field_width - w -1)
+        x = randint(0, field_width - w - 1)
         y = randint(0, field_height - h - 1)
 
         this_room = Rect(x, y, w, h)
@@ -471,7 +471,7 @@ monster_dict = {
             'hp' : 8,
             'defense' : 0,
             'power' : 3,
-            'xp' : 500,
+            'xp' : 30,
             'mp' : 0,
             'mag' : 0,
             'death_func' : monster_death
@@ -676,7 +676,9 @@ def next_level():
 
 
 def player_regen():
-    """ The player regenerates health between each floor
+    """ The player regenerates health and mana between each floor
+
+    [HP(MP)_MAX] * (14% + [REG%])
     """
 
     regen_hp = int(player.fighter.max_hp
@@ -695,7 +697,7 @@ def cast_spell():
 
     spell = menu("Choose a spell to cast\n",
                  spell_menu,
-                 40)
+                 spell_width)
 
     if spell is None or len(player.spells) == 0:
         return 'cancel'
@@ -712,8 +714,17 @@ def cast_spell():
         return 'cancel'
 
 
+adv_hp_count = 0
+adv_mp_count = 0
+adv_str_count = 0
+adv_mag_count = 0
+
+
 def check_level_up():
+    global adv_hp_count, adv_mp_count, adv_str_count, adv_mag_count
+
     level_up_xp = level_up_base + player.level * level_up_factor
+
     if player.fighter.xp >= level_up_xp:
         player.level += 1
         player.fighter.xp -= level_up_xp
@@ -722,7 +733,6 @@ def check_level_up():
         # Scaling stat advancement
 
         # HP
-        adv_hp_count = 0
         adv_hp = (player.fighter.max_hp * 0.15) - (adv_hp_count * 0.005)
         if adv_hp < player.fighter.max_hp * 0.04:
             adv_hp = int(player.fighter.max_hp * 0.04)
@@ -730,22 +740,25 @@ def check_level_up():
             adv_hp = int(adv_hp)
 
         # MP
-        adv_mp_count = 0
         adv_mp = (player.fighter.max_mp * 0.2) - (adv_mp_count * 0.0075)
         if adv_mp < player.fighter.max_mp * 0.04:
             adv_mp = int(player.fighter.max_mp * 0.04)
         else:
             adv_mp = int(adv_mp)
 
+        # TODO: Better formula for str & mag advancement?
         # STR
-        # TODO:
-        adv_str_count = 0
-        adv_str = 2 if count % 0 == 0 else 1
+        adv_str = 2 if adv_str_count % 2 == 0 else 1
+
+        # MAG
+        adv_mag = 2 if adv_mag_count % 2 == 0 else 1
+
+        # TODO: def & reg formulae?
 
         choice_list = [f'HP : {player.fighter.max_hp} (+ {adv_hp})',
                        f'MP : {player.fighter.max_mp} (+ {adv_mp})',
                        f'STR: {player.fighter.power} (+ {adv_str})',
-                       f'MAG: {player.fighter.mag} (+ 1)',
+                       f'MAG: {player.fighter.mag} (+ {adv_mag})',
                        f'DEF: {player.fighter.defense} (+ 1)',
                        f'REG: {player.regen_factor} (+ 1)']
 
@@ -759,7 +772,7 @@ def check_level_up():
         while choice is 'cancel':
             choice = menu('Promotion Get!\n',
                           choice_list,
-                          level_screen_width)
+                          level_up_width)
 
             if choice == 0:
                 player.fighter.max_hp += adv_hp
@@ -773,7 +786,8 @@ def check_level_up():
                 player.fighter.power += adv_str
                 adv_str_count += 1
             elif choice == 3:
-                player.fighter.mag += 1
+                player.fighter.mag += adv_mag
+                adv_mag_count += 1
             elif choice == 4:
                 player.fighter.defense += 1
             elif choice == 5:
@@ -798,6 +812,7 @@ def check_level_up():
 
 def handle_keys():
     """Checks the player's inputs every frame.
+
     Returns 'no-turn' if the player did not take an action.
     """
 
@@ -809,6 +824,7 @@ def handle_keys():
     if user_input.key == 'ESCAPE':
         return 'exit'
 
+    # TODO: do we even need the play and dead states?
     if game_state == 'play':
         # # Actions which take a turn
 
@@ -855,15 +871,10 @@ def handle_keys():
             elif user_input.char == 'd':
                 chosen_item = inventory_menu(
                     'Choose an item to drop, esc to cancel\n')
-                if chosen_item is not None:
+                if chosen_item is not 'cancel':
                     chosen_item.drop()
 
             return 'no-turn'
-
-    elif game_state == 'dead':
-        # esc : quit
-        if user_input.key == 'ESCAPE':
-            return 'exit'
 
 
 def inventory_menu(header):
@@ -894,20 +905,20 @@ def menu(header, options, width):
 
     header_wrapped = []
     for header_line in header.splitlines():
-        header_wrapped.extend(textwrap.wrap(header_line, width))
+        header_wrapped.extend(textwrap.wrap(header_line, width - 2))
     header_height = len(header_wrapped)
-    height = len(options) + header_height
+    height = len(options) + header_height + 2
 
     window = tdl.Console(width, height)
-    window.draw_rect(0, 0, width, height, None, fg=colors.white, bg=None)
+    window.draw_rect(0, 0, width, height, None, bg=colors.dark_gray)
     for i, line in enumerate(header_wrapped):
-        window.draw_str(0, 0+i, header_wrapped[i])
+        window.draw_str(1, 0+i, header_wrapped[i], fg=colors.light_gray)
 
-    y = header_height
+    y = header_height + 1
     letter_index = ord('a')
     for option_text in options:
         text = f'({chr(letter_index)}) {option_text}'
-        window.draw_str(0, y, text, bg=None)
+        window.draw_str(0, y, text, fg=colors.white, bg=None)
         y += 1
         letter_index += 1
 
@@ -917,7 +928,9 @@ def menu(header, options, width):
 
     tdl.flush()
 
+    # This usually catches a text type event
     key = tdl.event.key_wait()
+    # So we wait for the next non-text event
     while key.key == 'TEXT':
         key = tdl.event.key_wait()
     key_char = key.char
@@ -940,7 +953,7 @@ def message(new_msg, color=colors.white):
     color -(tuple)- rgb value to display for this message
     """
 
-    new_msg_lines = textwrap.wrap(new_msg, msg_width)
+    new_msg_lines = textwrap.wrap(new_msg, panel_width)
 
     for line in new_msg_lines:
         if len(game_msgs) == msg_height:
@@ -1032,8 +1045,10 @@ def render_bar(x, y, total_width, name, value, maximum,
 def render_all():
     """render everything to the screen"""
 
-    global fov_recompute
-    global visible_tiles
+    global fov_recompute, visible_tiles
+
+    # Write the background
+    root.blit(background)
 
     if fov_recompute:
         fov_recompute = False
@@ -1068,21 +1083,25 @@ def render_all():
     player.draw()
 
     # Blit the field `con` to the main screen `root`
-    root.blit(con, 0, 0, screen_width, screen_height, 0, 0)
+    root.blit(con, 1, 1, screen_width, screen_height, 0, 0)
 
     # Clear the GUI `panel`
     panel.clear(fg=colors.white, bg=colors.black)
 
     # Render messages
-    y = 1
+    messages.clear()
+    y = 0
     for (line, color) in game_msgs:
-        panel.draw_str(msg_x, y, line, bg=None, fg=color)
+        messages.draw_str(0, y, line, bg=None, fg=color)
         y += 1
 
+    # Blit the message panel to `root`
+    root.blit(messages, field_width + 2, 1)
     # Re-render the stats displays
 
     # Monster under mouse
-    # panel.draw_str(1, 0, get_names_under_mouse(), bg=None, fg=colors.light_gray)
+    # panel.draw_str(1, 0, get_names_under_mouse(),
+    #                bg=None, fg=colors.light_gray)
 
     # Player's HP
     render_bar(1, 1, bar_width, 'HP', player.fighter.hp, player.fighter.max_hp,
@@ -1106,34 +1125,36 @@ def render_all():
                    bg=colors.white, fg=colors.black)
 
     # Blit the newly rendered bars to `root`
-    root.blit(panel, 0, panel_y, screen_width, panel_height, 0, 0)
+    root.blit(panel, panel_x, panel_y, screen_width, panel_height, 0, 0)
 
-
-# Screen size
-screen_width = 80
-screen_height = 60
 
 # FPS
 # irrelevant in turn-based, but not harmful
 fps_limit = 20
 tdl.setFPS(fps_limit)
 
+# Screen size
+screen_width = 100
+screen_height = 60
+
 # Field size
-field_width = screen_width
-field_height = screen_height - 7
+field_width = 60
+field_height = screen_height - 2
 
 # # HUD settings
+panel_width = screen_width - field_width - 3
+# Messages
+msg_height = int(screen_height * 0.59)
+game_msgs = []
 # Stats
 bar_width = 20
-panel_height = 7
-panel_y = screen_height - panel_height
-# Messages
-msg_x = bar_width + 2
-msg_width = screen_width - bar_width -2
-msg_height = panel_height -1
-game_msgs = []
-# Inventory
-inventory_width = 50
+panel_height = screen_height - msg_height - 3
+panel_x = field_width + 2
+panel_y = msg_height + 2
+# Menus
+inventory_width = 40
+level_up_width = 20
+spell_width = 20
 
 # # Tile colors
 # Unlit tiles
@@ -1152,16 +1173,22 @@ fov_light_walls = True
 fov_radius = 10
 
 # Initialize the main display
-root = tdl.init(screen_width,
-                   screen_height,
-                   title="giraffelike",
-                   fullscreen=False)
+root = tdl.init(screen_width, screen_height,
+                title="giraffelike", fullscreen=False)
 
-# & Helper main undisplay
+# & Game field
 con = tdl.Console(field_width, field_height)
 
-# & helper GUI undisplay
-panel = tdl.Console(screen_width, panel_height)
+# & Message Box
+messages = tdl.Console(panel_width, msg_height)
+
+# & Stats panel
+panel = tdl.Console(panel_width, panel_height)
+
+# & bg
+background = tdl.Console(screen_width, screen_height)
+background.draw_rect(0, 0, screen_width, screen_height, ' ',
+                     bg=colors.darker_gray)
 
 # Create the player object
 fighter_mod = Fighter(hp=50, defense=1, power=5, xp=349,

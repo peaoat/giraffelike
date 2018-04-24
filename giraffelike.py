@@ -134,9 +134,14 @@ class Fighter:
     def attack(self, target):
         damage = self.power - target.fighter.defense
 
+        if self.owner.name == 'player':
+            msg_color = colors.light_blue
+        else:
+            msg_color = colors.light_red
+
         if damage > 0:
             message(f"{self.owner.name} attacks {target.name} for {damage}",
-                    colors.gray)
+                    msg_color)
             target.fighter.take_damage(damage)
         else:
             atk_msg = f'{self.owner.name}\'s puny'
@@ -246,7 +251,7 @@ def healing(hp_lower, hp_upper, mp_cost):
     heal_amount = randint(hp_lower, hp_upper)
     healmsg = f'On a scale of 0 to {player.fighter.max_hp}, you\'re feeling'
     healmsg += f' about {heal_amount} better than you did.'
-    message(healmsg, colors.azure)
+    message(healmsg, colors.red)
     player.fighter.heal(heal_amount)
 
 
@@ -332,11 +337,19 @@ class Rect:
     def center(self):
         center_x = (self.x1 + self.x2) // 2
         center_y = (self.y1 + self.y2) // 2
-        return (center_x, center_y)
+        return center_x, center_y
 
     def intersect(self, other):
         return (self.x1 <= other.x2 and self.x2 >= other.x1 and
                 self.y1 <= other.y2 and self.y2 >= other.y1)
+
+    def random_tile(self):
+        tilex, tiley = randint(self.x1, self.x2), randint(self.y1, self.y2)
+
+        while is_blocked(tilex, tiley):
+            tilex, tiley = randint(self.x1, self.x2), randint(self.y1, self.y2)
+
+        return tilex, tiley
 
 
 class Tile:
@@ -414,7 +427,7 @@ def make_field():
     # The smallest h or w
     room_min = 5
     # Maximum number of rooms a map may generate
-    room_num = 30
+    room_num = 50
 
     # Create a 2D array of Tiles
     field = [
@@ -440,23 +453,33 @@ def make_field():
             create_room(this_room)
 
             try:
-                (prevx, prevy) = rooms[len(rooms) - 1].center()
+                (prevx, prevy) = rooms[len(rooms) - 1].random_tile()
             except IndexError:
                 (prevx, prevy) = this_room.center()
 
-            thisx, thisy = this_room.center()
-            create_h_tunnel(prevx, thisx, prevy)
-            create_v_tunnel(prevy, thisy, thisx)
+            thisx, thisy = this_room.random_tile()
+
+            coin = randint(0, 1)
+            if coin:
+                create_h_tunnel(prevx, thisx, prevy)
+                create_v_tunnel(prevy, thisy, thisx)
+            else:
+                create_v_tunnel(prevy, thisy, thisx)
+                create_h_tunnel(prevx, thisx, prevy)
 
             place_objects(this_room)
             rooms.append(this_room)
 
-    # The player starts in the first room in the list
-    (startx, starty) = rooms[0].center()
+    # The player starts in a random tile in a random room
+    start_room = randint(0, len(rooms) - 1)
+    startx, starty = rooms[start_room].random_tile()
+    while is_blocked(startx, starty):
+        startx, starty = rooms[start_room].random_tile()
+
     player.x, player.y = startx, starty
 
-    # The stairs on in the last room in the list
-    (endx, endy) = rooms[-1].center()
+    # The stairs are in the last room in the list
+    endx, endy = rooms[-1].center()
     stairs = Entity(endx, endy, '\\', 'stairs', colors.white,
                     always_visible=True)
     objects.append(stairs)
@@ -514,7 +537,7 @@ def place_objects(room):
 
     # Generate the monsters
     # TODO: Method for generating long dungeon escalation?
-    # TODO: dungeon escalation for monster stats
+    # TODO: monster stat leveling
     monster_max = dungeon_escalation([[2, 1], [3, 4], [5, 6]])
     num_monsters = randint(0, monster_max)
 
@@ -554,7 +577,7 @@ def place_objects(room):
                     'Minor Mana Potion' : dungeon_escalation(
                         [[15, 5], [20, 10]]),
                     'Scroll of Minor Magic Missile' : dungeon_escalation(
-                        [[15, 3], [20, 5], [25, 10]])}
+                        [[1, 1], [15, 3], [20, 5], [25, 10]])}
 
     for i in range(num_items):
         x = randint(room.x1 + 1, room.x2 - 1)
@@ -566,8 +589,12 @@ def place_objects(room):
 
             if this_item == 'Minor Healing Potion':
                 # healing(hp_lower=int,hp_upper=int, mp_cost=int)
-                hp_lower = int(player.fighter.max_hp * 0.05)
-                hp_upper = int(player.fighter.max_hp * 0.12)
+                hp_lower = int(player.fighter.max_hp
+                               * (0.04 + (player.regen_factor * 0.011))
+                               )
+                hp_upper = int(player.fighter.max_hp
+                               * (0.12 + (player.regen_factor * 0.01))
+                               )
                 if hp_lower < 1:
                     hp_lower = 1
                 if hp_upper <= hp_lower:
@@ -1154,7 +1181,7 @@ panel_y = msg_height + 2
 # Menus
 inventory_width = 40
 level_up_width = 20
-spell_width = 20
+spell_width = 30
 
 # # Tile colors
 # Unlit tiles
@@ -1191,7 +1218,7 @@ background.draw_rect(0, 0, screen_width, screen_height, ' ',
                      bg=colors.darker_gray)
 
 # Create the player object
-fighter_mod = Fighter(hp=50, defense=1, power=5, xp=349,
+fighter_mod = Fighter(hp=50, defense=1, power=5, xp=0,
                       mp=15, mag=5, death_func=player_death)
 player = Entity(
     0, 0, '@', 'player', colors.white, blocks=True,

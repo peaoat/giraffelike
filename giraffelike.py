@@ -3,10 +3,14 @@
 
 import colors
 import math
-# pip3 install tdl
+import sys
 import tdl
 import textwrap
 from random import randint
+
+if sys.version_info.major != 3 or sys.version_info.minor < 6:
+    print("This game requires Python version 3.6 or greater.")
+    sys.exit(1)
 
 
 class BasicMonster:
@@ -139,14 +143,12 @@ class Fighter:
         else:
             msg_color = colors.light_red
 
-        if damage > 0:
-            message(f"{self.owner.name} attacks {target.name} for {damage}",
-                    msg_color)
-            target.fighter.take_damage(damage)
-        else:
-            atk_msg = f'{self.owner.name}\'s puny'
-            atk_msg += f' attack bounced off {target.name}'
-            message(atk_msg, colors.light_gray)
+        if damage < 1:
+            damage = 1
+
+        message(f"{self.owner.name} attacks {target.name} for {damage}",
+                msg_color)
+        target.fighter.take_damage(damage)
 
     def heal(self, health, mana=0):
         self.hp += health
@@ -229,6 +231,30 @@ def closest_monster(max_range):
 
 # # Spells and Items # #
 
+
+def teleport(ent, mp_cost):
+    """Item and spell module for teleporting the player to a random tile
+
+    Keyword Arguments:
+    ent -(Entity Instance)- the Entity to teleport somewhere
+    mp_cost -(int)- the amount of mp required to cast the spell
+    """
+
+    if player.fighter.mp < mp_cost:
+        message(f'Not enough mp! ({mp_cost})', colors.yellow)
+        return 'cancel'
+
+    x, y = randint(0, field_width - 1), randint(0, field_height - 1)
+
+    while is_blocked(x, y):
+        x, y = randint(0, field_width - 1), randint(0, field_height - 1)
+
+    ent.x, ent.y = x, y
+    if ent == player:
+        global fov_recompute
+        fov_recompute = True
+
+
 def healing(hp_lower, hp_upper, mp_cost):
     """Item and spell module for restoring player HP
 
@@ -249,9 +275,10 @@ def healing(hp_lower, hp_upper, mp_cost):
     player.fighter.mp -= mp_cost
 
     heal_amount = randint(hp_lower, hp_upper)
-    healmsg = f'On a scale of 0 to {player.fighter.max_hp}, you\'re feeling'
-    healmsg += f' about {heal_amount} better than you did.'
-    message(healmsg, colors.red)
+    message(f'On a scale of 0 to {player.fighter.max_hp}, you feel...',
+            colors.light_red)
+    message(f'{heal_amount} better than you did.',
+            colors.red)
     player.fighter.heal(heal_amount)
 
 
@@ -478,58 +505,10 @@ def make_field():
 
     player.x, player.y = startx, starty
 
+    # TODO: random stair placement?
     # The stairs are in the last room in the list
-    endx, endy = rooms[-1].center()
-    stairs = Entity(endx, endy, '\\', 'stairs', colors.white,
-                    always_visible=True)
-    objects.append(stairs)
+    stairs.x, stairs.y = rooms[-1].center()
     stairs.send_to_back()
-
-
-monster_dict = {
-    'kobold' : {
-        'char' : 'k',
-        'color' : colors.dark_azure,
-        'fighter': {
-            'hp' : 8,
-            'defense' : 0,
-            'power' : 3,
-            'xp' : 30,
-            'mp' : 0,
-            'mag' : 0,
-            'death_func' : monster_death
-        },
-        'name' : 'kobold',
-    },
-    'orc' : {
-        'char' : 'o',
-        'color' : colors.desaturated_green,
-        'fighter': {
-            'hp' : 12,
-            'defense' : 1,
-            'power' : 3,
-            'xp' : 40,
-            'mp' : 0,
-            'mag' : 0,
-            'death_func' : monster_death
-        },
-        'name' : 'orc',
-    },
-    'troll' : {
-        'char' : 'T',
-        'color' : colors.darker_green,
-        'fighter': {
-            'hp' : 15,
-            'defense' : 2,
-            'power' : 5,
-            'xp' : 50,
-            'mp' : 0,
-            'mag' : 0,
-            'death_func' : monster_death
-        },
-        'name' : 'troll',
-    }
-}
 
 
 def place_objects(room):
@@ -537,14 +516,61 @@ def place_objects(room):
 
     # Generate the monsters
     # TODO: Method for generating long dungeon escalation?
-    # TODO: monster stat leveling
+    # TODO: monster stat leveling formulae adjustment
+    adv_k = int(dungeon_level * 0.1)
+    adv_o = int(dungeon_level * 0.25)
+    adv_t = int(dungeon_level * 0.5)
+    monster_dict = {
+        'kobold' : {
+            'char' : 'k',
+            'color' : colors.dark_azure,
+            'fighter' : {
+                'hp' : 6 + adv_k,
+                'defense' : 0 + adv_k,
+                'power' : 3 + adv_k,
+                'xp' : 30 + adv_k,
+                'mp' : 0,
+                'mag' : 0,
+                'death_func' : monster_death
+            },
+            'name' : 'kobold',
+        },
+        'orc' : {
+            'char' : 'o',
+            'color' : colors.desaturated_green,
+            'fighter' : {
+                'hp' : 12 + adv_o,
+                'defense' : 1 + adv_o,
+                'power' : 3 + adv_o,
+                'xp' : 40 + adv_o,
+                'mp' : 0,
+                'mag' : 0,
+                'death_func' : monster_death
+            },
+            'name' : 'orc',
+        },
+        'troll' : {
+            'char' : 'T',
+            'color' : colors.darker_green,
+            'fighter' : {
+                'hp' : 15 + adv_t,
+                'defense' : 2 + adv_t,
+                'power' : 5 + adv_t,
+                'xp' : 50 + adv_t,
+                'mp' : 0,
+                'mag' : 0,
+                'death_func' : monster_death
+            },
+            'name' : 'troll',
+        }
+    }
     monster_max = dungeon_escalation([[2, 1], [3, 4], [5, 6]])
     num_monsters = randint(0, monster_max)
 
     monster_chances = {'kobold' : 60,
                        'orc' : dungeon_escalation([[20, 3], [30, 5], [60, 7]]),
                        'troll' : dungeon_escalation(
-                           [[15, 4], [30, 6], [45, 8]])}
+                           [[15, 5], [30, 7], [45, 9]])}
 
     for i in range(num_monsters):
         x = randint(room.x1 + 1, room.x2 - 1)
@@ -575,9 +601,12 @@ def place_objects(room):
 
     item_chances = {'Minor Healing Potion' : 30,
                     'Minor Mana Potion' : dungeon_escalation(
-                        [[15, 5], [20, 10]]),
+                        [[15, 5], [20, 7], [25, 9]]),
                     'Scroll of Minor Magic Missile' : dungeon_escalation(
-                        [[1, 1], [15, 3], [20, 5], [25, 10]])}
+                        [[1, 1], [15, 3], [20, 5], [25, 10]]),
+                    'Scroll of Blink' : dungeon_escalation(
+                        [[1, 1], [5, 3], [10, 5], [15, 7]])
+                    }
 
     for i in range(num_items):
         x = randint(room.x1 + 1, room.x2 - 1)
@@ -627,8 +656,7 @@ def place_objects(room):
                 item_module = Item(use_func=mana_recovery,
                                    kwargs=minor_mana)
 
-            else:
-                # if this_item == 'Scroll of Minor Magic Missile':
+            elif this_item == 'Scroll of Minor Magic Missile':
                 # # magic_missile(damage=int, mp_cost=int)
                 damage = (dungeon_level // 2) + 7
                 minor_missile = {'damage': damage,
@@ -639,6 +667,16 @@ def place_objects(room):
                 item_name = 'Scroll of Minor Magic Missile'
                 item_module = Item(use_func=magic_missile,
                                    kwargs=minor_missile)
+            else:
+                # if this_item == 'Scroll of Blink':
+                # # teleport(ent=Entity(), mp_cost=int)
+                blink = {'ent' : player,
+                         'mp_cost' : 0}
+                item_char = '#'
+                item_color = colors.light_violet
+                item_name = 'Scroll of Blink'
+                item_module = Item(use_func=teleport,
+                                   kwargs=blink)
 
             item = Entity(x, y, item_char, item_name,
                           item_color, always_visible=True, item=item_module)
@@ -682,7 +720,7 @@ def next_level():
 
     fov_recompute = True
     dungeon_level += 1
-    objects = [player]
+    objects = [player, stairs]
 
     regen_hp, regen_mp = player_regen()
     player.fighter.heal(health=regen_hp, mana=regen_mp)
@@ -792,8 +830,17 @@ def check_level_up():
         # Add available skills and spells
         if player.level >= 2 and 'Minor Heal' not in player.spells:
             choice_list.append('Minor Heal')
-        if player.level >= 5 and 'Magic Missile' not in player.spells:
+        if player.level >= 5 \
+                and 'Magic Missile' not in player.spells \
+                and 'Blink' not in player.spells:
             choice_list.append('Magic Missile')
+            choice_list.append('Blink')
+        elif player.level >= 7 \
+                and 'Magic Missile' not in player.spells:
+            choice_list.append('Magic Missile')
+        elif player.level >= 7 \
+                and 'Blink' not in player.spells:
+            choice_list.append('Blink')
 
         choice = 'cancel'
         while choice is 'cancel':
@@ -843,7 +890,8 @@ def handle_keys():
     Returns 'no-turn' if the player did not take an action.
     """
 
-    global fov_recompute, mouse_coord, game_state
+    global fov_recompute, game_state
+    #global mouse_coord
 
     user_input = tdl.event.key_wait()
 
@@ -885,7 +933,8 @@ def handle_keys():
         else:
             # \ : descend to the next level
             if user_input.char == '\\':
-                next_level()
+                if player.x == stairs.x and player.y == stairs.y:
+                    next_level()
 
             # shift : pick up item beneath player
             elif user_input.key == 'SHIFT':
@@ -1238,7 +1287,9 @@ player.regen_factor = 1
 # initialize the field
 dungeon_level = 1
 fov_recompute = True
-objects = [player]
+stairs = Entity(1, 1, '\\', 'stairs', colors.white,
+                    always_visible=True)
+objects = [player, stairs]
 make_field()
 
 # Welcome message

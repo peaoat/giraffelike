@@ -138,7 +138,7 @@ class Fighter:
     def attack(self, target):
         damage = self.power - target.fighter.defense
 
-        if self.owner.name == 'player':
+        if self.owner == player:
             msg_color = colors.light_blue
         else:
             msg_color = colors.light_red
@@ -160,12 +160,9 @@ class Fighter:
             self.mp = self.max_mp
 
     def take_damage(self, damage):
-        damage = damage
+        self.hp -= damage
 
-        if damage > 0 :
-            self.hp -= damage
-
-        if self.hp <= 0 :
+        if self.hp <= 0:
             if self.owner != player:
                 player.fighter.xp += self.xp
 
@@ -324,13 +321,13 @@ def mana_recovery(mp_lower, mp_upper):
     message(f'You recovered {rec_mp} MP.')
 
 
-def player_death(player):
+def player_death(the_player):
     """Displays player's corpse and a Game Over message"""
 
     global game_state
     message('...and You Dead.')
-    player.color = colors.dark_red
-    player.char = 'F'
+    the_player.color = colors.dark_red
+    the_player.char = 'F'
     # Game over, dood.
     game_state = 'dead'
 
@@ -397,7 +394,7 @@ class Tile:
 
 def create_room(room):
     # Pass this a Rect and it will make it a walkable space
-    global field
+    # global field
     for x in range(room.x1 + 1, room.x2):
         for y in range(room.y1 + 1, room.y2):
             field[x][y].blocked = False
@@ -405,14 +402,14 @@ def create_room(room):
 
 
 def create_h_tunnel(x1, x2, y):
-    global field
+    # global field
     for x in range(min(x1, x2), max(x1, x2) + 1):
         field[x][y].blocked = False
         field[x][y].block_sight = False
 
 
 def create_v_tunnel(y1, y2, x):
-    global field
+    # global field
     for y in range(min(y1, y2), max(y1, y2) + 1):
         field[x][y].blocked = False
         field[x][y].block_sight = False
@@ -430,15 +427,15 @@ def is_blocked(x, y):
 
 
 def is_visible_tile(x, y):
-    global field
+    # global field
 
     if x >= field_width or x < 0:
         return False
     elif y >= field_height or y < 0:
         return False
-    elif field[x][y].blocked == True:
+    elif field[x][y].blocked:
         return False
-    elif field[x][y].block_sight == True:
+    elif field[x][y].block_sight:
         return False
     else:
         return True
@@ -448,7 +445,10 @@ def make_field():
     global field
     rooms = []
 
-    # # Settings
+    # TODO: more complex room generation
+    # TODO: minimum number of rooms?
+    # TODO: new room shapes
+
     # The largest height or width of a room
     room_max = 13
     # The smallest h or w
@@ -458,7 +458,7 @@ def make_field():
 
     # Create a 2D array of Tiles
     field = [
-        [Tile(True) for x in range(field_height)] for y in range(field_width)]
+        [Tile(True) for _ in range(field_height)] for _ in range(field_width)]
 
     for r in range(room_num):
         w = randint(room_min, room_max)
@@ -774,6 +774,9 @@ def cast_spell():
         healing(hp_lower=int(player.fighter.mag * 0.25),
                 hp_upper=int(player.fighter.mag * 0.75),
                 mp_cost=3)
+    elif player.spells[spell] == 'Blink':
+        teleport(ent=player,
+                 mp_cost=2)
 
     else:
         return 'cancel'
@@ -891,7 +894,7 @@ def handle_keys():
     """
 
     global fov_recompute, game_state
-    #global mouse_coord
+    # global mouse_coord
 
     user_input = tdl.event.key_wait()
 
@@ -1087,9 +1090,9 @@ def player_move(dx, dy):
 
     # Is there a fighter there to target?
     target = None
-    for thing in objects:
-        if thing.fighter and thing.x == x and thing.y == y:
-            target = thing
+    for obj in objects:
+        if obj.fighter and obj.x == x and obj.y == y:
+            target = obj
             break
 
     # Attack if there's a target
@@ -1102,7 +1105,7 @@ def player_move(dx, dy):
 
 
 def render_bar(x, y, total_width, name, value, maximum,
-               bar_color,bg_color, text_color):
+               bar_color, bg_color, text_color):
     """Render a bar which visually represents some stat
     and draw it to the `panel` HUD element"""
 
@@ -1288,7 +1291,7 @@ player.regen_factor = 1
 dungeon_level = 1
 fov_recompute = True
 stairs = Entity(1, 1, '\\', 'stairs', colors.white,
-                    always_visible=True)
+                always_visible=True)
 objects = [player, stairs]
 make_field()
 
@@ -1302,8 +1305,8 @@ while not tdl.event.is_window_closed():
 
     check_level_up()
 
-    for obj in objects:
-        obj.clear()
+    for thing in objects:
+        thing.clear()
 
     player_action = handle_keys()
 
@@ -1315,6 +1318,6 @@ while not tdl.event.is_window_closed():
     # Monsters' turn
     if game_state == 'play' and player_action != 'no-turn':
         player_regen()
-        for obj in objects:
-            if obj.ai:
-                obj.ai.take_turn()
+        for thing in objects:
+            if thing.ai:
+                thing.ai.take_turn()

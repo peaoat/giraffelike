@@ -12,22 +12,6 @@ if sys.version_info.major != 3 or sys.version_info.minor < 6:
     print("This game requires Python version 3.6 or greater.")
     sys.exit(1)
 
-
-class BasicMonster:
-    """AI for simple monsters.
-
-    If the player can see the monster, the monster will chase the player.
-    """
-
-    def take_turn(self):
-        monster = self.owner
-        if (monster.x, monster.y) in visible_tiles:
-            if monster.distance_to(player) >= 2:
-                monster.move_towards(player.x, player.y)
-            elif player.fighter.hp > 0:
-                monster.fighter.attack(player)
-
-
 # # # # # # # # # # # # # # # # # # # #
 # Entities and Entity Modules
 # # # # # # # # # # # # # # # # # # # #
@@ -68,6 +52,9 @@ class Entity:
         if self.item:
             self.item.owner = self
 
+    def clear(self):
+        con.draw_char(self.x, self.y, ' ', self.color)
+
     def distance(self, x, y):
         return math.sqrt((x - self.x) ** 2 + (y - self.y) ** 2)
 
@@ -94,9 +81,6 @@ class Entity:
         dx = int(round(dx / distance))
         dy = int(round(dy / distance))
         self.move(dx, dy)
-
-    def clear(self):
-        con.draw_char(self.x, self.y, ' ', self.color)
 
     def send_to_back(self):
         global objects
@@ -226,7 +210,26 @@ def closest_monster(max_range):
     return closest_enemy
 
 
+# TODO: more AI options
+class BasicMonster:
+    """AI for simple monsters.
+
+    If the player can see the monster, the monster will chase the player.
+    """
+
+    def take_turn(self):
+        monster = self.owner
+        if (monster.x, monster.y) in visible_tiles:
+            if monster.distance_to(player) >= 2:
+                monster.move_towards(player.x, player.y)
+            elif player.fighter.hp > 0:
+                monster.fighter.attack(player)
+
+
 # # Spells and Items # #
+# TODO: More spells and items
+# TODO: Push (force enemies away from the player)
+# TODO: a-z targeting for aggressive spells
 
 
 def teleport(ent, mp_cost):
@@ -238,7 +241,8 @@ def teleport(ent, mp_cost):
     """
 
     if player.fighter.mp < mp_cost:
-        message(f'Not enough mp! ({mp_cost})', colors.yellow)
+        message(f'Your spell fizzles. You need at least {mp_cost} MP.',
+                colors.yellow)
         return 'cancel'
 
     x, y = randint(0, field_width - 1), randint(0, field_height - 1)
@@ -262,11 +266,12 @@ def healing(hp_lower, hp_upper, mp_cost):
     """
 
     if player.fighter.hp == player.fighter.max_hp:
-        message('You are already at full HP', colors.light_red)
+        message('You don\'t need to recover any HP', colors.yellow)
         return 'cancel'
 
     if player.fighter.mp < mp_cost:
-        message(f'Not enough mp! ({mp_cost})', colors.yellow)
+        message(f'Your spell fizzles. You need at least {mp_cost} MP.',
+                colors.yellow)
         return 'cancel'
 
     player.fighter.mp -= mp_cost
@@ -288,19 +293,20 @@ def magic_missile(damage, mp_cost):
     """
 
     if player.fighter.mp < mp_cost:
-        message('You do not have enough MP to cast this spell')
+        message(f'Your spell fizzles. You need at least {mp_cost} MP.',
+                colors.yellow)
         return 'cancel'
 
     monster = closest_monster(fov_radius)
 
     if monster is None:
-        message('You cannot cast Magic Missile at the Darkness', colors.red)
+        message('You can\'t cast Magic Missile at the Darkness', colors.yellow)
         return 'cancel'
 
     player.fighter.mp -= mp_cost
-    atk_msg = f'A pale blue energy violently strikes the {monster.name}'
-    atk_msg += f' for {damage} points of damage'
-    message(atk_msg, colors.light_blue)
+    message(f'A pale blue energy violently strikes the {monster.name}!',
+            colors.light_azure)
+    message(f'You deal {damage} points of damage!', colors.light_blue)
     monster.fighter.take_damage(damage)
 
 
@@ -313,7 +319,7 @@ def mana_recovery(mp_lower, mp_upper):
     """
 
     if player.fighter.mp == player.fighter.max_mp:
-        message("You don't need to recover any MP", colors.red)
+        message("You don't need to recover any MP", colors.yellow)
         return 'cancel'
 
     rec_mp = randint(mp_lower, mp_upper)
@@ -448,6 +454,7 @@ def make_field():
     # TODO: more complex room generation
     # TODO: minimum number of rooms?
     # TODO: new room shapes
+    # TODO: Event-style rooms, shops, genies, etc.
 
     # The largest height or width of a room
     room_max = 13
@@ -592,6 +599,7 @@ def place_objects(room):
 
     # Generate the items
 
+    # TODO: Add more potion variations
     # TODO: Store and retrieve items from a dict
     # eg item_dict = {'item name' : {'item_char' : '#'}}
     # item_dict['item']['item_char'] == '#'

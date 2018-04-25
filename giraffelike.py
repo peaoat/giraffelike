@@ -244,6 +244,8 @@ def teleport(ent, mp_cost):
         message(f'Your spell fizzles. You need at least {mp_cost} MP.',
                 colors.yellow)
         return 'cancel'
+    else:
+        player.fighter.mp -= mp_cost
 
     x, y = randint(0, field_width - 1), randint(0, field_height - 1)
 
@@ -324,14 +326,14 @@ def mana_recovery(mp_lower, mp_upper):
 
     rec_mp = randint(mp_lower, mp_upper)
     player.fighter.heal(health=0, mana=rec_mp)
-    message(f'You recovered {rec_mp} MP.')
+    message(f'You recovered {rec_mp} MP.', colors.azure)
 
 
 def player_death(the_player):
     """Displays player's corpse and a Game Over message"""
 
     global game_state
-    message('...and You Dead.')
+    message('...and You Dead.', colors.brass)
     the_player.color = colors.dark_red
     the_player.char = 'F'
     # Game over, dood.
@@ -525,8 +527,8 @@ def place_objects(room):
     # TODO: Method for generating long dungeon escalation?
     # TODO: monster stat leveling formulae adjustment
     adv_k = int(dungeon_level * 0.1)
-    adv_o = int(dungeon_level * 0.25)
-    adv_t = int(dungeon_level * 0.5)
+    adv_o = int(dungeon_level * 0.3)
+    adv_t = int(dungeon_level * 0.3)
     monster_dict = {
         'kobold' : {
             'char' : 'k',
@@ -574,10 +576,14 @@ def place_objects(room):
     monster_max = dungeon_escalation([[2, 1], [3, 4], [5, 6]])
     num_monsters = randint(0, monster_max)
 
-    monster_chances = {'kobold' : 60,
-                       'orc' : dungeon_escalation([[20, 3], [30, 5], [60, 7]]),
+    monster_chances = {'kobold' : dungeon_escalation(
+                        [[100, 1], [90, 3], [84, 5], [78, 7], [60, 9]]),
+
+                       'orc' : dungeon_escalation(
+                           [[10, 3], [15, 5], [20, 7], [35, 9]]),
+
                        'troll' : dungeon_escalation(
-                           [[15, 5], [30, 7], [45, 9]])}
+                           [[1, 5], [2, 7], [5, 9]])}
 
     for i in range(num_monsters):
         x = randint(room.x1 + 1, room.x2 - 1)
@@ -607,11 +613,12 @@ def place_objects(room):
     max_items = dungeon_escalation([[1, 1], [2, 5], [3, 10]])
     num_items = randint(0, max_items)
 
-    item_chances = {'Minor Healing Potion' : 30,
-                    'Minor Mana Potion' : dungeon_escalation(
-                        [[15, 5], [20, 7], [25, 9]]),
-                    'Scroll of Minor Magic Missile' : dungeon_escalation(
-                        [[1, 1], [15, 3], [20, 5], [25, 10]]),
+    item_chances = {'Healing Potion' : dungeon_escalation(
+                        [[97, 1], [70, 3], [55, 5], [50, 7], [45, 9]]),
+                    'Mana Potion' : dungeon_escalation(
+                        [[1, 1], [5, 3], [15, 5], [20, 7], [25, 9]]),
+                    'Scroll of Magic Missile' : dungeon_escalation(
+                        [[1, 1], [15, 3], [20, 5], [15, 7]]),
                     'Scroll of Blink' : dungeon_escalation(
                         [[1, 1], [5, 3], [10, 5], [15, 7]])
                     }
@@ -624,7 +631,7 @@ def place_objects(room):
         if not is_blocked(x, y):
             this_item = randomizer(item_chances)
 
-            if this_item == 'Minor Healing Potion':
+            if this_item == 'Healing Potion':
                 # healing(hp_lower=int,hp_upper=int, mp_cost=int)
                 hp_lower = int(player.fighter.max_hp
                                * (0.04 + (player.regen_factor * 0.011))
@@ -643,11 +650,11 @@ def place_objects(room):
 
                 item_char = '!'
                 item_color = colors.light_red
-                item_name = 'Minor Healing Potion'
+                item_name = 'Healing Potion'
                 item_module = Item(use_func=healing,
                                    kwargs=minor_potion)
 
-            elif this_item == 'Minor Mana Potion':
+            elif this_item == 'Mana Potion':
                 # mana_recovery(mp_lower=int, mp_upper=int)
                 mp_lower = int(player.fighter.max_mp * 0.05)
                 mp_upper = int(player.fighter.max_mp * 0.12)
@@ -660,11 +667,11 @@ def place_objects(room):
 
                 item_char = '!'
                 item_color = colors.light_azure
-                item_name = 'Minor Mana Potion'
+                item_name = 'Mana Potion'
                 item_module = Item(use_func=mana_recovery,
                                    kwargs=minor_mana)
 
-            elif this_item == 'Scroll of Minor Magic Missile':
+            elif this_item == 'Scroll of Magic Missile':
                 # # magic_missile(damage=int, mp_cost=int)
                 damage = (dungeon_level // 2) + 7
                 minor_missile = {'damage': damage,
@@ -672,7 +679,7 @@ def place_objects(room):
 
                 item_char = '#'
                 item_color = colors.light_blue
-                item_name = 'Scroll of Minor Magic Missile'
+                item_name = 'Scroll of Magic Missile'
                 item_module = Item(use_func=magic_missile,
                                    kwargs=minor_missile)
             else:

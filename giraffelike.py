@@ -17,6 +17,7 @@ if sys.version_info.major != 3 or sys.version_info.minor < 6:
 # # # # # # # # # # # # # # # # # # # #
 
 
+# TODO: A* pathfinding option?
 class Entity:
     """Base class for any entity in the dungeon.
 
@@ -64,6 +65,8 @@ class Entity:
         return math.sqrt(dx ** 2 + dy ** 2)
 
     def draw(self):
+        # Dislpay this entity if it is in the player's FOV
+        # Some entities are 'always visible' after they've been found
         if (self.x, self.y) in visible_tiles or \
                 (self.always_visible and field[self.x][self.y].explored):
             con.draw_char(self.x, self.y, self.char, self.color)
@@ -73,6 +76,31 @@ class Entity:
         if not is_blocked(self.x + dx, self.y + dy):
             self.x += dx
             self.y += dy
+
+    # TODO: A* movement
+    def move_smart(self, target_x, target_y):
+        # Don't let those pesky corners stop you from your goal
+        dx = target_x - self.x
+        dy = target_y - self.y
+        distance = math.sqrt(dx ** 2 + dy ** 2)
+        dx = int(round(dx / distance))
+        dy = int(round(dy / distance))
+        gotox = self.x + dx
+        gotoy = self.y + dy
+        if is_blocked(gotox, gotoy) and gotox != player.x and gotoy != player.y:
+            if gotoy == self.y:
+                if target_y > self.y:
+                    if not is_blocked(gotox, gotoy + 1):
+                        dy += 1
+                elif target_y < self.y:
+                    if not is_blocked(gotox, gotoy - 1):
+                        dy -= 1
+            elif gotox == self.x:
+                if target_x > self.x and not is_blocked(gotox + 1, gotoy):
+                    dx += 1
+                elif target_x < self.x and not is_blocked(gotox - 1, gotoy):
+                    dx -= 1
+        self.move(dx, dy)
 
     def move_towards(self, target_x, target_y):
         dx = target_x - self.x
@@ -86,6 +114,23 @@ class Entity:
         global objects
         objects.remove(self)
         objects.insert(0, self)
+
+    def closest_monster(self, max_range) :
+        closest_enemy = None
+        closest_dist = max_range + 1
+        for obj in objects:
+            if obj.fighter \
+                    and obj != player \
+                    and obj != self \
+                    and (obj.x, obj.y) in visible_tiles:
+                if (self.name == 'Your ally' or self == player) \
+                        and obj.name == 'Your ally':
+                    continue
+                dist = player.distance_to(obj)
+                if dist < closest_dist:
+                    closest_enemy = obj
+                    closest_dist = dist
+        return closest_enemy
 
 
 class Fighter:
@@ -124,6 +169,8 @@ class Fighter:
 
         if self.owner == player:
             msg_color = colors.light_blue
+        elif self.owner.name == 'Your ally':
+            msg_color = colors.gold
         else:
             msg_color = colors.light_red
 
@@ -147,6 +194,7 @@ class Fighter:
         self.hp -= damage
 
         if self.hp <= 0:
+            # TODO: xp goes to the killer even if it's a monster?
             if self.owner != player:
                 player.fighter.xp += self.xp
 
@@ -163,7 +211,7 @@ class Item:
     kwargs -(dict)- the arguments to pass to use_func
     """
 
-    def __init__(self, use_func=None, kwargs=None):
+    def __init__(self, use_func=None, kwargs={}):
         self.use_func = use_func
         self.kwargs = kwargs
 
@@ -196,66 +244,111 @@ class Item:
                 inventory.remove(self.owner)
 
 
-def closest_monster(max_range):
-    closest_enemy = None
-    closest_dist = max_range + 1
-    for obj in objects:
-        if obj.fighter \
-                and not obj == player \
-                and (obj.x, obj.y) in visible_tiles:
-            dist = player.distance_to(obj)
-            if dist < closest_dist:
-                closest_enemy = obj
-                closest_dist = dist
-    return closest_enemy
-
-
 # TODO: more AI options
+""" Archer - Runs from the player if possible, attacks if player moves within
+range or if cornered.
+    Swarmer - Follows the player at a distance of 3 tiles if possible, moves in
+to attack when there are three or more swarmers nearby.
+    Wizard - Charges up and casts spells at the player, does not move?
+"""
+
+
 class BasicMonster:
     """AI for simple monsters.
 
-    If the player can see the monster, the monster will chase the player.
+    If the player can see the monster, the monster will chase the player
+    and attack.
+    Basic monster will attack any allies or the player based on who has the most
+    HP remaining.
+    """
+
+    def take_turn(self):
+        monster = self.owner
+
+        if (monster.x, monster.y) in visible_tiles :
+            target = player
+            if self.owner.closest_monster(4) is not None:
+                other = self.owner.closest_monster(4)
+                if (other.name == 'Your ally'
+                        and other.fighter.hp >= player.fighter.hp):
+                    target = other
+
+            if monster.distance_to(target) >= 2:
+                monster.move_towards(target.x, target.y)
+            elif player.fighter.hp > 0:
+                monster.fighter.attack(target)
+
+
+class Behemoth:
+    """AI for Behemoth-style monsters
+
+    If the player comes within 3 tiles of the creature, it will follow
+    and attack the player. Otherwise it will remain still.
+    Behemoths pay no heed to allies.
     """
 
     def take_turn(self):
         monster = self.owner
         if (monster.x, monster.y) in visible_tiles:
-            if monster.distance_to(player) >= 2:
+            if monster.distance_to(player) > 3:
+                pass
+            elif monster.distance_to(player) == 2:
                 monster.move_towards(player.x, player.y)
             elif player.fighter.hp > 0:
                 monster.fighter.attack(player)
 
 
-# # Spells and Items # #
-# TODO: More spells and items
-# TODO: Push (force enemies away from the player)
-# TODO: a-z targeting for aggressive spells
+# TODO: Allies should maybe be in a special list?
+# TODO: Limited number of allies - probably in enthrall()
+# TODO: Ally command states -- passive, aggressive, defensive
+class Ally:
+    """AI for allied monsters
 
-
-def teleport(ent, mp_cost):
-    """Item and spell module for teleporting the player to a random tile
-
-    Keyword Arguments:
-    ent -(Entity Instance)- the Entity to teleport somewhere
-    mp_cost -(int)- the amount of mp required to cast the spell
+    This monster will attack nearby enemy monsters.
+    If there are no enemies, it will follow the player instead.
+    Ally stats are boosted 25% above normal
     """
 
-    if player.fighter.mp < mp_cost:
-        message(f'Your spell fizzles. You need at least {mp_cost} MP.',
-                colors.yellow)
+    def take_turn(self):
+        ally = self.owner
+        enemy = self.owner.closest_monster(5)
+        if enemy is not None:
+            if ally.distance_to(enemy) >= 2:
+                ally.move_smart(enemy.x, enemy.y)
+            else:
+                ally.fighter.attack(enemy)
+        else:
+            if ally.distance_to(player) >= 2:
+                ally.move_smart(player.x, player.y)
+
+
+# # Spells and Items # #
+# TODO: More spells and items!
+""" Push - force enemies away from the player
+    a-z targeting for aggressive spells
+    summon familiar - summons a spirit to fight by your side for one floor"""
+
+
+def enthrall():
+    """Item module for enthralling a monster
+
+    The nearest monster enters the service of the player
+    """
+
+    target = player.closest_monster(5)
+    if target is None:
         return 'cancel'
-    else:
-        player.fighter.mp -= mp_cost
 
-    x, y = randint(0, field_width - 1), randint(0, field_height - 1)
-
-    while is_blocked(x, y):
-        x, y = randint(0, field_width - 1), randint(0, field_height - 1)
-
-    ent.x, ent.y = x, y
-    if ent == player:
-        global fov_recompute
-        fov_recompute = True
+    target.ai = Ally()
+    target.ai.owner = target
+    message(f'The {target.name} is now your ally!', colors.gold)
+    target.name = 'Your ally'
+    target.color = colors.gold
+    target.fighter.max_hp = int(1.25 * target.fighter.max_hp)
+    target.fighter.hp = target.fighter.max_hp
+    target.fighter.power = int(target.fighter.power * 1.25)
+    target.fighter.defense = int(target.fighter.defense * 1.25)
+    target.send_to_back()
 
 
 def healing(hp_lower, hp_upper, mp_cost):
@@ -286,10 +379,11 @@ def healing(hp_lower, hp_upper, mp_cost):
     player.fighter.heal(heal_amount)
 
 
-def magic_missile(damage, mp_cost):
+def magic_missile(caster, damage, mp_cost):
     """Deals damage to the nearest enemy in the FOV
 
     Keyword Arguments:
+    caster -(Entity())- the entity who casts the spell
     damage -(int)- Amount of damage to deal to the foe
     mp_cost -(int)- the amount of mp required to cast the spell
     """
@@ -299,7 +393,7 @@ def magic_missile(damage, mp_cost):
                 colors.yellow)
         return 'cancel'
 
-    monster = closest_monster(fov_radius)
+    monster = caster.closest_monster(fov_radius)
 
     if monster is None:
         message('You can\'t cast Magic Missile at the Darkness', colors.yellow)
@@ -327,6 +421,32 @@ def mana_recovery(mp_lower, mp_upper):
     rec_mp = randint(mp_lower, mp_upper)
     player.fighter.heal(health=0, mana=rec_mp)
     message(f'You recovered {rec_mp} MP.', colors.azure)
+
+
+def teleport(ent, mp_cost) :
+    """Item and spell module for teleporting the player to a random tile
+
+    Keyword Arguments:
+    ent -(Entity Instance)- the Entity to teleport somewhere
+    mp_cost -(int)- the amount of mp required to cast the spell
+    """
+
+    if player.fighter.mp < mp_cost :
+        message(f'Your spell fizzles. You need at least {mp_cost} MP.',
+                colors.yellow)
+        return 'cancel'
+    else :
+        player.fighter.mp -= mp_cost
+
+    x, y = randint(0, field_width - 1), randint(0, field_height - 1)
+
+    while is_blocked(x, y) :
+        x, y = randint(0, field_width - 1), randint(0, field_height - 1)
+
+    ent.x, ent.y = x, y
+    if ent == player :
+        global fov_recompute
+        fov_recompute = True
 
 
 def player_death(the_player):
@@ -410,17 +530,27 @@ def create_room(room):
 
 
 def create_h_tunnel(x1, x2, y):
-    # global field
     for x in range(min(x1, x2), max(x1, x2) + 1):
         field[x][y].blocked = False
         field[x][y].block_sight = False
 
 
 def create_v_tunnel(y1, y2, x):
-    # global field
     for y in range(min(y1, y2), max(y1, y2) + 1):
         field[x][y].blocked = False
         field[x][y].block_sight = False
+
+
+def create_random_tunnel(room1, room2):
+    thisx, thisy = room1.random_tile()
+    prevx, prevy = room2.random_tile()
+
+    if randint(0, 1):
+        create_h_tunnel(prevx, thisx, prevy)
+        create_v_tunnel(prevy, thisy, thisx)
+    else:
+        create_v_tunnel(prevy, thisy, thisx)
+        create_h_tunnel(prevx, thisx, prevy)
 
 
 def is_blocked(x, y):
@@ -453,10 +583,10 @@ def make_field():
     global field
     rooms = []
 
-    # TODO: more complex room generation
+    # TODO: more complex room generation?
     # TODO: minimum number of rooms?
     # TODO: new room shapes
-    # TODO: Event-style rooms, shops, genies, etc.
+    # TODO: Special rooms, shops, genies, etc.
 
     # The largest height or width of a room
     room_max = 13
@@ -489,19 +619,23 @@ def make_field():
             create_room(this_room)
 
             try:
-                (prevx, prevy) = rooms[len(rooms) - 1].random_tile()
+                prev_room = rooms[len(rooms) - 1]
+                # (prevx, prevy) = rooms[len(rooms) - 1].random_tile()
             except IndexError:
-                (prevx, prevy) = this_room.center()
+                place_objects(this_room)
+                rooms.append(this_room)
+                continue
 
-            thisx, thisy = this_room.random_tile()
+            # thisx, thisy = this_room.random_tile()
+            create_random_tunnel(this_room, prev_room)
 
-            coin = randint(0, 1)
-            if coin:
-                create_h_tunnel(prevx, thisx, prevy)
-                create_v_tunnel(prevy, thisy, thisx)
-            else:
-                create_v_tunnel(prevy, thisy, thisx)
-                create_h_tunnel(prevx, thisx, prevy)
+            # coin = randint(0, 1)
+            # if coin:
+            #     create_h_tunnel(prevx, thisx, prevy)
+            #     create_v_tunnel(prevy, thisy, thisx)
+            # else:
+            #     create_v_tunnel(prevy, thisy, thisx)
+            #     create_h_tunnel(prevx, thisx, prevy)
 
             place_objects(this_room)
             rooms.append(this_room)
@@ -526,19 +660,21 @@ def place_objects(room):
     # Generate the monsters
     # TODO: Method for generating long dungeon escalation?
     # TODO: monster stat leveling formulae adjustment
-    adv_k = int(dungeon_level * 0.1)
-    adv_o = int(dungeon_level * 0.3)
-    adv_t = int(dungeon_level * 0.3)
+    # exponential increase instead of linear?
+    every_five = int(dungeon_level * 0.2)
+    every_four = int(dungeon_level * 0.25)
+    xp_gain = dungeon_level * player.level / 2
     monster_dict = {
         'kobold' : {
             'char' : 'k',
             'color' : colors.dark_azure,
             'fighter' : {
-                'hp' : 6 + adv_k,
-                'defense' : 0 + adv_k,
-                'power' : 3 + adv_k,
-                'xp' : 30 + adv_k,
+                'hp' : 6 + every_five,
+                'defense' : 0 + every_five,
+                'power' : 3 + every_five,
+                'xp' : 30 + xp_gain,
                 'mp' : 0,
+                'mag' : 0,
                 'mag' : 0,
                 'death_func' : monster_death
             },
@@ -548,10 +684,10 @@ def place_objects(room):
             'char' : 'o',
             'color' : colors.desaturated_green,
             'fighter' : {
-                'hp' : 12 + adv_o,
-                'defense' : 1 + adv_o,
-                'power' : 3 + adv_o,
-                'xp' : 40 + adv_o,
+                'hp' : 12 + every_five,
+                'defense' : 1 + every_five,
+                'power' : 3 + every_five,
+                'xp' : 40 + xp_gain,
                 'mp' : 0,
                 'mag' : 0,
                 'death_func' : monster_death
@@ -562,10 +698,10 @@ def place_objects(room):
             'char' : 'T',
             'color' : colors.darker_green,
             'fighter' : {
-                'hp' : 15 + adv_t,
-                'defense' : 2 + adv_t,
-                'power' : 5 + adv_t,
-                'xp' : 50 + adv_t,
+                'hp' : 15 + every_four,
+                'defense' : 2 + every_four,
+                'power' : 5 + every_four,
+                'xp' : 50 + xp_gain,
                 'mp' : 0,
                 'mag' : 0,
                 'death_func' : monster_death
@@ -591,7 +727,10 @@ def place_objects(room):
 
         if not is_blocked(x, y):
             this_monster = monster_dict[randomizer(monster_chances)]
-            this_ai = BasicMonster()
+            if this_monster['name'] == 'troll':
+                this_ai = Behemoth()
+            else:
+                this_ai = BasicMonster()
 
             monster = Entity(x, y,
                              this_monster['char'],
@@ -614,13 +753,14 @@ def place_objects(room):
     num_items = randint(0, max_items)
 
     item_chances = {'Healing Potion' : dungeon_escalation(
-                        [[97, 1], [70, 3], [55, 5], [50, 7], [45, 9]]),
+                        [[96, 1], [69, 3], [54, 5], [49, 7], [44, 9]]),
                     'Mana Potion' : dungeon_escalation(
                         [[1, 1], [5, 3], [15, 5], [20, 7], [25, 9]]),
                     'Scroll of Magic Missile' : dungeon_escalation(
                         [[1, 1], [15, 3], [20, 5], [15, 7]]),
                     'Scroll of Blink' : dungeon_escalation(
-                        [[1, 1], [5, 3], [10, 5], [15, 7]])
+                        [[1, 1], [5, 3], [10, 5], [15, 7]]),
+                    'Scroll of Friendship' : 1
                     }
 
     for i in range(num_items):
@@ -672,9 +812,10 @@ def place_objects(room):
                                    kwargs=minor_mana)
 
             elif this_item == 'Scroll of Magic Missile':
-                # # magic_missile(damage=int, mp_cost=int)
+                # # magic_missile(caster=Entity(), damage=int, mp_cost=int)
                 damage = (dungeon_level // 2) + 7
-                minor_missile = {'damage': damage,
+                minor_missile = {'caster' : player,
+                                 'damage': damage,
                                  'mp_cost': 0}
 
                 item_char = '#'
@@ -682,8 +823,8 @@ def place_objects(room):
                 item_name = 'Scroll of Magic Missile'
                 item_module = Item(use_func=magic_missile,
                                    kwargs=minor_missile)
-            else:
-                # if this_item == 'Scroll of Blink':
+
+            elif this_item == 'Scroll of Blink':
                 # # teleport(ent=Entity(), mp_cost=int)
                 blink = {'ent' : player,
                          'mp_cost' : 0}
@@ -692,6 +833,13 @@ def place_objects(room):
                 item_name = 'Scroll of Blink'
                 item_module = Item(use_func=teleport,
                                    kwargs=blink)
+            else:
+                # if this_item == 'Scroll of Friendship':
+                # # enthrall()
+                item_char = '#'
+                item_color = colors.gold
+                item_name = 'Scroll of Friendship'
+                item_module = Item(use_func=enthrall)
 
             item = Entity(x, y, item_char, item_name,
                           item_color, always_visible=True, item=item_module)
@@ -782,7 +930,7 @@ def cast_spell():
     if spell is None or len(player.spells) == 0:
         return 'cancel'
     elif player.spells[spell] == 'Magic Missile':
-        magic_missile(damage=int(player.fighter.mag * 0.5),
+        magic_missile(caster=player, damage=int(player.fighter.mag * 0.5),
                       mp_cost=5)
 
     elif player.spells[spell] == 'Minor Heal':
@@ -1110,9 +1258,15 @@ def player_move(dx, dy):
             target = obj
             break
 
-    # Attack if there's a target
     if target is not None:
-        player.fighter.attack(target)
+        # If target is your ally, swap places with it
+        if target.name == 'Your ally' :
+            player.x, target.x = target.x, player.x
+            player.y, target.y = target.y, player.y
+        # Attack otherwise
+        else:
+            player.fighter.attack(target)
+
     # Move there if there's no target
     else:
         player.move(dx, dy)
@@ -1154,16 +1308,27 @@ def render_all():
 
     for y in range(field_height):
         for x in range(field_width):
+
             visible = (x, y) in visible_tiles
             wall = field[x][y].block_sight
 
+            # If this tile is not in the player's FOV
             if not visible:
+                # Display it as dark if they've been there
                 if field[x][y].explored:
                     if wall:
                         con.draw_char(x, y, None, fg=None, bg=c_dark_wall)
                     else:
                         con.draw_char(x, y, None, fg=None, bg=c_dark_gnd)
+                # # Uncomment this block to see the map outline
+                # if wall :
+                #     con.draw_char(x, y, None, fg=None, bg=c_dark_wall)
+                # else :
+                #     con.draw_char(x, y, None, fg=None, bg=c_dark_gnd)
+
+            # If this tile is in the player;s FOV
             else:
+                # Display it as a lit area
                 if wall:
                     con.draw_char(x, y, None, fg=None, bg=c_light_wall)
                 else:
@@ -1202,21 +1367,18 @@ def render_all():
                colors.light_red, colors.darker_red, colors.white)
 
     # Player's MP
-    render_bar(1, 2, bar_width, 'MP', player.fighter.mp, player.fighter.max_mp,
+    render_bar(1, 3, bar_width, 'MP', player.fighter.mp, player.fighter.max_mp,
                colors.light_blue, colors.darker_red, colors.white)
 
     # Dungeon Level
-    panel.draw_str(10, 6, f'Floor: {dungeon_level}',
+    panel.draw_str(panel_width - 11, panel_height - 2, f'Floor: {dungeon_level}',
                    bg=colors.white, fg=colors.black)
 
-    # Player Level
-    panel.draw_str(1, 6, f'Level: {player.level}',
-                   bg=colors.white, fg=colors.black)
-
-    # Player XP
-    panel.draw_str(1, 5, f'xp: {player.fighter.xp} / '
-                         + f'{level_up_base + player.level * level_up_factor}',
-                   bg=colors.white, fg=colors.black)
+    # Player Level & XP
+    render_bar(1, panel_height - 2, bar_width, f'Lv{player.level}',
+               int(player.fighter.xp),
+               level_up_base + player.level * level_up_factor,
+               colors.light_violet, colors.desaturated_violet, colors.white)
 
     # Blit the newly rendered bars to `root`
     root.blit(panel, panel_x, panel_y, screen_width, panel_height, 0, 0)

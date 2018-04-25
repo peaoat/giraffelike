@@ -301,6 +301,7 @@ class Behemoth:
 # TODO: Allies should maybe be in a special list?
 # TODO: Limited number of allies - probably in enthrall()
 # TODO: Ally command states -- passive, aggressive, defensive
+# TODO: display ally stats
 class Ally:
     """AI for allied monsters
 
@@ -326,7 +327,8 @@ class Ally:
 # TODO: More spells and items!
 """ Push - force enemies away from the player
     a-z targeting for aggressive spells
-    summon familiar - summons a spirit to fight by your side for one floor"""
+    summon familiar - summons a spirit to fight by your side for one floor
+    some way to heal your familiar"""
 
 
 def enthrall():
@@ -1078,6 +1080,8 @@ def handle_keys():
             player_move(-1, 0)
         elif user_input.key == 'RIGHT':
             player_move(1, 0)
+
+        # TODO: Ultimate Thumb Attack
         elif user_input.key == 'SPACE':
             message('You twiddle your thumbs')
 
@@ -1373,6 +1377,8 @@ def render_all():
     # Dungeon Level
     panel.draw_str(panel_width - 11, panel_height - 2, f'Floor: {dungeon_level}',
                    bg=colors.white, fg=colors.black)
+
+    # TODO: display player stats
 
     # Player Level & XP
     render_bar(1, panel_height - 2, bar_width, f'Lv{player.level}',

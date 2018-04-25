@@ -23,3 +23,4 @@ _I recommend using a virtualenv :)_
 - If you move into an enemy, you will attack that enemy
 - Enemies can move and attack diagonally, while you cannot. Plan accordingly!
 - REG increases the amount of healing you receive from resting and drinking potions
+- Allies are pretty OP, but only last one floor!

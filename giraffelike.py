@@ -17,7 +17,6 @@ if sys.version_info.major != 3 or sys.version_info.minor < 6:
 # # # # # # # # # # # # # # # # # # # #
 
 
-# TODO: A* pathfinding option?
 class Entity:
     """Base class for any entity in the dungeon.
 
@@ -31,10 +30,12 @@ class Entity:
     fighter -(object)- object to initialize entity's combat stats
     ai -(object)- object which holds ai instructions
     item -(object)- object which holds item instructions
+    equipment -(object)- object which holds equipment instructions
     """
 
     def __init__(self, x, y, char, name, color, blocks=False,
-                 always_visible=False, fighter=None, ai=None, item=None):
+                 always_visible=False, fighter=None, ai=None, item=None,
+                 equipment=None):
         self.x = x
         self.y = y
         self.char = char
@@ -51,6 +52,11 @@ class Entity:
             self.ai.owner = self
         self.item = item
         if self.item:
+            self.item.owner = self
+        self.equipment = equipment
+        if self.equipment:
+            self.equipment.owner = self
+            self.item = Item(use_func=self.equipment.toggle_equip)
             self.item.owner = self
 
     def clear(self):
@@ -204,7 +210,7 @@ class Fighter:
 
 
 class Item:
-    """An item which can be used by the player
+    """ An item which can be used by the player
 
     Keyword Arguments:
     use_func -(function)- the function to call when using this item
@@ -242,6 +248,31 @@ class Item:
             if self.use_func(**self.kwargs) != 'cancel':
                 # Remove the item from inventory unless it shouldn't be removed
                 inventory.remove(self.owner)
+
+
+class Equipment:
+    """ An item which can be equipped by the user
+
+    Keyword Arguments:
+    slot -(string)- exclusive slot to which this item may be equipped"""
+
+    def __init__(self, slot):
+        self.slot = slot
+        self.is_equipped = False
+
+    def toggle_equip(self):
+        if self.is_equipped:
+            self.unequip()
+        else:
+            self.equip()
+
+    def equip(self):
+        self.is_equipped = True
+        message(f'{self.owner.name} equipped to {self.slot}')
+
+    def unequip(self):
+        self.is_equipped = False
+        message(f'{self.owner.name} unequipped from {self.slot}')
 
 
 # TODO: more AI options
@@ -348,8 +379,8 @@ def enthrall():
     target.color = colors.gold
     target.fighter.max_hp = int(1.25 * target.fighter.max_hp)
     target.fighter.hp = target.fighter.max_hp
-    target.fighter.power = int(target.fighter.power * 1.25)
-    target.fighter.defense = int(target.fighter.defense * 1.25)
+    target.fighter.power = int(round(target.fighter.power * 1.25))
+    target.fighter.defense = int(round(target.fighter.defense * 1.25))
     target.send_to_back()
 
 

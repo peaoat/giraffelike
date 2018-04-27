@@ -159,16 +159,50 @@ class Fighter:
 
     # TODO: Magic Defense
 
-    def __init__(self, hp, defense, power, xp, mp=0, mag=0, death_func=None):
-        self.max_hp = hp
+    def __init__(self, hp, defense, power, xp,
+                 mp=0, mag=0, regen=0,
+                 death_func=None):
+        self.base_max_hp = hp
+        self.base_max_mp = mp
+        self.base_defense = defense
+        self.base_power = power
+        self.base_mag = mag
+        self.base_regen = regen
+
         self.hp = hp
-        self.defense = defense
-        self.power = power
-        self.xp = xp
-        self.max_mp = mp
         self.mp = mp
-        self.mag = mag
+        self.xp = xp
         self.death_func = death_func
+
+    @property
+    def max_hp(self):
+        bonus = sum(eq.max_hp for eq in get_all_equipped())
+        return self.base_max_hp + bonus
+
+    @property
+    def defense(self):
+        bonus = sum(eq.defense for eq in get_all_equipped())
+        return self.base_defense + bonus
+
+    @property
+    def power(self):
+        bonus = sum(eq.power for eq in get_all_equipped())
+        return self.base_power + bonus
+
+    @property
+    def max_mp(self):
+        bonus = sum(eq.max_mp for eq in get_all_equipped())
+        return self.base_max_mp + bonus
+
+    @property
+    def mag(self):
+        bonus = sum(eq.magick for eq in get_all_equipped())
+        return self.base_mag + bonus
+
+    @property
+    def regen(self):
+        bonus = sum(eq.regen for eq in get_all_equipped())
+        return self.base_regen + bonus
 
     def attack(self, target):
         damage = self.power - target.fighter.defense
@@ -223,12 +257,30 @@ class Item:
 
     def drop(self):
         objects.append(self.owner)
-        inventory.remove(self.owner)
+        if self.owner.equipment:
+            self.owner.equipment.unequip()
+            equipment.remove(self.owner)
+        else:
+            inventory.remove(self.owner)
         self.owner.x = player.x
         self.owner.y = player.y
         message(f'You place the {self.owner.name} on the ground', colors.yellow)
 
     def pick_up(self):
+        # If it's equipment, put it in your equipment menu
+        if self.owner.equipment:
+            if len(equipment) >= 26:
+                message(
+                    f'Your pack is full, couldn\'t pick up {self.owner.name}',
+                    colors.red)
+                return
+            else:
+                equipment.append(self.owner)
+                objects.remove(self.owner)
+                message(f'You put the {self.owner.name} in your pack.',
+                        colors.light_green)
+            return
+
         # Add to inventory
         if len(inventory) >= 26:
             message(f'Pockets are full, couldn\'t pick up {self.owner.name}',
@@ -237,9 +289,14 @@ class Item:
             inventory.append(self.owner)
             objects.remove(self.owner)
             message(f'You put a {self.owner.name} in your pocket.',
-                    colors.green)
+                    colors.light_green)
 
     def use(self):
+        # If this is equipment, toggle equip
+        if self.owner.equipment:
+            self.owner.equipment.toggle_equip()
+            return
+
         # If there's no function to call, you can't use this item
         if self.use_func is None:
             message(f'You cant use a {self.owner.name}')
@@ -256,8 +313,15 @@ class Equipment:
     Keyword Arguments:
     slot -(string)- exclusive slot to which this item may be equipped"""
 
-    def __init__(self, slot):
+    def __init__(self, slot,
+                 max_hp=0, max_mp=0, power=0, defense=0, magick=0, regen=0):
         self.slot = slot
+        self.max_hp = max_hp
+        self.max_mp = max_mp
+        self.power = power
+        self.defense = defense
+        self.magick = magick
+        self.regen = regen
         self.is_equipped = False
 
     def toggle_equip(self):
@@ -267,12 +331,33 @@ class Equipment:
             self.equip()
 
     def equip(self):
+        old_equipment = get_equipped_in_slot(self.slot)
+        if old_equipment is not None:
+            old_equipment.unequip()
+
         self.is_equipped = True
         message(f'{self.owner.name} equipped to {self.slot}')
 
     def unequip(self):
+        if not self.is_equipped:
+            return
         self.is_equipped = False
         message(f'{self.owner.name} unequipped from {self.slot}')
+
+
+def get_equipped_in_slot(slot):
+    for item in equipment:
+        if item.equipment.slot == slot and item.equipment.is_equipped:
+            return item.equipment
+    return None
+
+
+def get_all_equipped():
+    equipped = []
+    for equip in equipment:
+        if equip.equipment.is_equipped:
+            equipped.append(equip.equipment)
+    return equipped
 
 
 # TODO: more AI options
@@ -310,10 +395,11 @@ class BasicMonster:
                 monster.fighter.attack(target)
 
 
+# TODO: display behemoth danger zone
 class Behemoth:
     """AI for Behemoth-style monsters
 
-    If the player comes within 3 tiles of the creature, it will follow
+    If the player comes within a few tiles of the creature, it will follow
     and attack the player. Otherwise it will remain still.
     Behemoths pay no heed to allies.
     """
@@ -330,9 +416,9 @@ class Behemoth:
 
 
 # TODO: Allies should maybe be in a special list?
-# TODO: Limited number of allies - probably in enthrall()
-# TODO: Ally command states -- passive, aggressive, defensive
-# TODO: display ally stats
+# TODO: Limited number of allies? - probably in enthrall()
+# TODO: Ally command states - passive, aggressive, defensive
+# TODO: display ally stats - maybe under c?
 class Ally:
     """AI for allied monsters
 
@@ -355,11 +441,11 @@ class Ally:
 
 
 # # Spells and Items # #
-# TODO: More spells and items!
+# TODO: MOAR spells and items!
 """ Push - force enemies away from the player
     a-z targeting for aggressive spells
     summon familiar - summons a spirit to fight by your side for one floor
-    some way to heal your familiar"""
+    some way to heal your allies"""
 
 
 def enthrall():
@@ -777,23 +863,45 @@ def place_objects(room):
 
     # Generate the items
 
-    # TODO: Add more potion variations
-    # TODO: Store and retrieve items from a dict
+    # TODO: Add more potion variations?
+    # TODO: Store and retrieve items from a dict like monsters
     # eg item_dict = {'item name' : {'item_char' : '#'}}
     # item_dict['item']['item_char'] == '#'
 
     max_items = dungeon_escalation([[1, 1], [2, 5], [3, 10]])
     num_items = randint(0, max_items)
 
+    # # item dict in progress
+    # item_dict = {
+    #     'Healing Potion' : {
+    #         'item_name' : 'Healing Potion',
+    #         'item_char' : '!',
+    #         'item' : {
+    #             'use_func' : healing,
+    #             'kwargs' : {
+    #                 'hp_lower' : int(player.fighter.max_hp
+    #                                  * (0.04 + (player.fighter.regen * 0.011))),
+    #                 }
+    #             },
+    #
+    #         },
+    #     'Mana Potion' : {}
+    #     }
+
     item_chances = {'Healing Potion' : dungeon_escalation(
-                        [[96, 1], [69, 3], [54, 5], [49, 7], [44, 9]]),
+                        [[100, 1], [90, 3], [80, 5], [70, 7], [60, 9]]),
                     'Mana Potion' : dungeon_escalation(
                         [[1, 1], [5, 3], [15, 5], [20, 7], [25, 9]]),
                     'Scroll of Magic Missile' : dungeon_escalation(
-                        [[1, 1], [15, 3], [20, 5], [15, 7]]),
+                        [[1, 1], [10, 3], [15, 7]]),
                     'Scroll of Blink' : dungeon_escalation(
                         [[1, 1], [5, 3], [10, 5], [15, 7]]),
-                    'Scroll of Friendship' : 1
+                    'Scroll of Friendship' : dungeon_escalation(
+                        [[1, 1], [2, 5], [4, 9]]),
+                    'Sword': dungeon_escalation(
+                        [[1, 1], [2, 5], [4, 9]]),
+                    'Shield': dungeon_escalation(
+                        [[1, 1], [2, 5], [4, 9]])
                     }
 
     for i in range(num_items):
@@ -802,15 +910,19 @@ def place_objects(room):
 
         # Do not place items on blocked areas
         if not is_blocked(x, y):
+
+            item_module = None
+            equipment_module = None
+
             this_item = randomizer(item_chances)
 
             if this_item == 'Healing Potion':
                 # healing(hp_lower=int,hp_upper=int, mp_cost=int)
                 hp_lower = int(player.fighter.max_hp
-                               * (0.04 + (player.regen_factor * 0.011))
+                               * (0.04 + (player.fighter.regen * 0.011))
                                )
                 hp_upper = int(player.fighter.max_hp
-                               * (0.12 + (player.regen_factor * 0.01))
+                               * (0.12 + (player.fighter.regen * 0.01))
                                )
                 if hp_lower < 1:
                     hp_lower = 1
@@ -866,16 +978,36 @@ def place_objects(room):
                 item_name = 'Scroll of Blink'
                 item_module = Item(use_func=teleport,
                                    kwargs=blink)
-            else:
-                # if this_item == 'Scroll of Friendship':
+            elif this_item == 'Scroll of Friendship':
                 # # enthrall()
                 item_char = '#'
                 item_color = colors.gold
                 item_name = 'Scroll of Friendship'
                 item_module = Item(use_func=enthrall)
+            elif this_item == 'Sword':
+                #   Equipment(slot, max_hp, max_mp,
+                # power, defense, magick, regen))
+                item_char = 'l'
+                item_color = colors.dark_sky
+                item_name = 'Sword'
+                sword_pow = int(round(dungeon_level * 1.1))
+                equipment_module = Equipment(slot='right hand',
+                                             power=sword_pow)
+
+            else:
+                # if this_item == 'Shield':
+                # Equipment(slot, max_hp, max_mp,
+                # power, defense, magick, regen))
+                item_char = 'u'
+                item_color = colors.dark_sky
+                item_name = 'Shield'
+                shield_power = int(round(dungeon_level * 1.3))
+                equipment_module = Equipment(slot='left hand',
+                                             defense=shield_power)
 
             item = Entity(x, y, item_char, item_name,
-                          item_color, always_visible=True, item=item_module)
+                          item_color, always_visible=True, item=item_module,
+                          equipment=equipment_module)
             objects.append(item)
             item.send_to_back()
 
@@ -885,8 +1017,8 @@ def random_index(chances):
 
     Keyword Arguments:
     chances -(list of ints)- each int represents the likelyhood of being chosen
-        compared to the sum of the list
-    """
+        compared to the sum of the list"""
+
     die = randint(1, sum(chances))
     total = 0
 
@@ -898,6 +1030,7 @@ def random_index(chances):
 
 def randomizer(chance_dict):
     """Wraps random_index and returns the dict entry it chooses randomly"""
+
     chances = list(chance_dict.values())
     strings = list(chance_dict.keys())
 
@@ -905,6 +1038,9 @@ def randomizer(chance_dict):
 
 
 def dungeon_escalation(table):
+    """ Picks the pair with the highest 1th entry that is <= dungeon_level and
+    returns the 0th entry in that pair"""
+
     for (value, level) in reversed(table):
         if dungeon_level >= level:
             return value
@@ -923,7 +1059,7 @@ def next_level():
 
     message('During a calm moment, you find time to rest...', colors.white)
     message(f'You regained {regen_hp} hp.', colors.light_red)
-    message(f'and {regen_mp} mp.', colors. light_blue)
+    message(f'You regained {regen_mp} mp.', colors. light_blue)
     message('Back to work...', colors.chartreuse)
 
     con.clear(fg=colors.black, bg=colors.black)
@@ -943,9 +1079,9 @@ def player_regen():
     """
 
     regen_hp = int(player.fighter.max_hp
-                   * (0.14 + (player.regen_factor * 0.01)))
+                   * (0.14 + (player.fighter.regen * 0.01)))
     regen_mp = int(player.fighter.max_mp
-                   * (0.14 + (player.regen_factor * 0.01)))
+                   * (0.14 + (player.fighter.regen * 0.01)))
 
     return regen_hp, regen_mp
 
@@ -997,16 +1133,16 @@ def check_level_up():
         # Scaling stat advancement
 
         # HP
-        adv_hp = (player.fighter.max_hp * 0.15) - (adv_hp_count * 0.005)
-        if adv_hp < player.fighter.max_hp * 0.04:
-            adv_hp = int(player.fighter.max_hp * 0.04)
+        adv_hp = (player.fighter.base_max_hp * 0.15) - (adv_hp_count * 0.005)
+        if adv_hp < player.fighter.base_max_hp * 0.04:
+            adv_hp = int(player.fighter.base_max_hp * 0.04)
         else:
             adv_hp = int(adv_hp)
 
         # MP
-        adv_mp = (player.fighter.max_mp * 0.2) - (adv_mp_count * 0.0075)
-        if adv_mp < player.fighter.max_mp * 0.04:
-            adv_mp = int(player.fighter.max_mp * 0.04)
+        adv_mp = (player.fighter.base_max_mp * 0.2) - (adv_mp_count * 0.0075)
+        if adv_mp < player.fighter.base_max_mp * 0.04:
+            adv_mp = int(player.fighter.base_max_mp * 0.04)
         else:
             adv_mp = int(adv_mp)
 
@@ -1019,12 +1155,12 @@ def check_level_up():
 
         # TODO: def & reg formulae?
 
-        choice_list = [f'HP : {player.fighter.max_hp} (+ {adv_hp})',
-                       f'MP : {player.fighter.max_mp} (+ {adv_mp})',
-                       f'STR: {player.fighter.power} (+ {adv_str})',
-                       f'MAG: {player.fighter.mag} (+ {adv_mag})',
-                       f'DEF: {player.fighter.defense} (+ 1)',
-                       f'REG: {player.regen_factor} (+ 1)']
+        choice_list = [f'HP : {player.fighter.base_max_hp} (+ {adv_hp})',
+                       f'MP : {player.fighter.base_max_mp} (+ {adv_mp})',
+                       f'STR: {player.fighter.base_power} (+ {adv_str})',
+                       f'MAG: {player.fighter.base_mag} (+ {adv_mag})',
+                       f'DEF: {player.fighter.base_defense} (+ 1)',
+                       f'REG: {player.fighter.base_regen} (+ 1)']
 
         # Add available skills and spells
         if player.level >= 2 and 'Minor Heal' not in player.spells:
@@ -1048,23 +1184,23 @@ def check_level_up():
                           level_up_width)
 
             if choice == 0:
-                player.fighter.max_hp += adv_hp
+                player.fighter.base_max_hp += adv_hp
                 player.fighter.hp += adv_hp
                 adv_hp_count += 1
             elif choice == 1:
-                player.fighter.max_mp += adv_mp
+                player.fighter.base_max_mp += adv_mp
                 player.fighter.mp += adv_mp
                 adv_mp_count += 1
             elif choice == 2:
-                player.fighter.power += adv_str
+                player.fighter.base_power += adv_str
                 adv_str_count += 1
             elif choice == 3:
-                player.fighter.mag += adv_mag
+                player.fighter.base_mag += adv_mag
                 adv_mag_count += 1
             elif choice == 4:
-                player.fighter.defense += 1
+                player.fighter.base_defense += 1
             elif choice == 5:
-                player.regen_factor += 1
+                player.fighter.base_regen += 1
             elif choice is 'cancel':
                 pass
             elif choice_list[choice] not in player.spells:
@@ -1112,7 +1248,7 @@ def handle_keys():
         elif user_input.key == 'RIGHT':
             player_move(1, 0)
 
-        # TODO: Ultimate Thumb Attack
+        # TODO: Ultimate Thumb Attack?
         elif user_input.key == 'SPACE':
             message('You twiddle your thumbs')
 
@@ -1124,16 +1260,23 @@ def handle_keys():
         # i : use an item from inventory
         elif user_input.char == 'i':
             chosen_item = inventory_menu(
-                'Choose an item to use, esc to cancel\n')
-            if chosen_item == 'cancel':
-                return 'no-turn'
-            else:
+                'Choose an item to use, esc to cancel\n', inventory)
+            if chosen_item != 'cancel' :
                 chosen_item.use()
+            else:
+                return 'no-turn'
+        elif user_input.char == 'e':
+            chosen_item = inventory_menu(
+                'Equipment\n', equipment)
+            if chosen_item != 'cancel':
+                chosen_item.use()
+            else:
+                return 'no-turn'
 
         # actions which do not consume a turn
         else:
             # \ : descend to the next level
-            if user_input.char == '\\':
+            if user_input.char == '.':
                 if player.x == stairs.x and player.y == stairs.y:
                     next_level()
 
@@ -1144,32 +1287,55 @@ def handle_keys():
                         item.item.pick_up()
                         break
 
-            # d : drop an item from inventory
-            elif user_input.char == 'd':
+            # o : drop an item from inventory
+            elif user_input.char == 'o':
                 chosen_item = inventory_menu(
-                    'Choose an item to drop, esc to cancel\n')
+                    'Choose an item to drop, esc to cancel\n', inventory)
                 if chosen_item is not 'cancel':
                     chosen_item.drop()
+
+            # r : drop an item from equipment
+            elif user_input.char == 'r':
+                chosen_equip = inventory_menu(
+                    'Choose an item to drop, esc to cancel\n', equipment)
+                if chosen_equip is not 'cancel':
+                    chosen_equip.drop()
 
             return 'no-turn'
 
 
-def inventory_menu(header):
+def inventory_menu(header, inv=[]):
     """Displays the character's inventory as a selectable menu
     Returns the index of the item selected
     Returns 'cancel' if no selection or no items
     """
 
-    if len(inventory) == 0:
-        options = ['Inventory is empty']
+    if len(inv) == 0:
+        options = ['Nothing to see here']
     else:
-        options = [item.name for item in inventory]
+        options = [item.name for item in inv]
 
     index = menu(header, options, inventory_width)
 
-    if index is 'cancel' or len(inventory) == 0:
+    if index is 'cancel' or len(inv) == 0:
         return 'cancel'
-    return inventory[index].item
+    return inv[index].item
+
+
+def get_notable_feature(equip):
+    notable_feature = None
+    stats = {
+        'MAX HP': equip.equipment.max_hp,
+        'MAX MP': equip.equipment.max_mp,
+        'STR': equip.equipment.power,
+        'MAG': equip.equipment.magick,
+        'DEF': equip.equipment.defense,
+        'REG': equip.equipment.regen
+    }
+
+    notable_feature = max(stats, key= lambda key: stats[key])
+
+    return f'{notable_feature}: {stats[notable_feature]}'
 
 
 def menu(header, options, width):
@@ -1193,11 +1359,26 @@ def menu(header, options, width):
 
     y = header_height + 1
     letter_index = ord('a')
-    for option_text in options:
-        text = f'({chr(letter_index)}) {option_text}'
-        window.draw_str(0, y, text, fg=colors.white, bg=None)
-        y += 1
-        letter_index += 1
+    try:
+        if options[0] == equipment[0].name:
+            for i, option in enumerate(options):
+                text = f'({chr(letter_index)}) {option} ' \
+                       f'({get_notable_feature(equipment[i])})'
+                window.draw_str(0, y, text, fg=colors.white, bg=None)
+                y += 1
+                letter_index += 1
+        else:
+            for option in options :
+                text = f'({chr(letter_index)}) {option}'
+                window.draw_str(0, y, text, fg=colors.white, bg=None)
+                y += 1
+                letter_index += 1
+    except IndexError:
+        for option in options:
+            text = f'({chr(letter_index)}) {option}'
+            window.draw_str(0, y, text, fg=colors.white, bg=None)
+            y += 1
+            letter_index += 1
 
     x = screen_width // 2 - width // 2
     y = screen_height // 2 - height // 2
@@ -1325,6 +1506,16 @@ def render_bar(x, y, total_width, name, value, maximum,
     panel.draw_str(x_centered, y, text, fg=text_color, bg=None)
 
 
+def render_stat(x, y, name, base_stat, stat) :
+    if base_stat < stat :
+        color = colors.light_green
+    else :
+        color = colors.white
+
+    panel.draw_str(x, y, f'{name}:', bg=None, fg=colors.white)
+    panel.draw_str(x + 4, y, str(stat), bg=None, fg=color)
+
+
 def render_all():
     """render everything to the screen"""
 
@@ -1406,10 +1597,24 @@ def render_all():
                colors.light_blue, colors.darker_red, colors.white)
 
     # Dungeon Level
-    panel.draw_str(panel_width - 11, panel_height - 2, f'Floor: {dungeon_level}',
-                   bg=colors.white, fg=colors.black)
+    panel.draw_str(panel_width - 11, panel_height - 2,
+                   f'Floor: {dungeon_level}', bg=colors.white, fg=colors.black)
 
-    # TODO: display player stats
+    # STR
+    render_stat(1, 5, 'STR',
+                player.fighter.base_power, player.fighter.power)
+
+    # MAG
+    render_stat(1, 7, 'MAG',
+                player.fighter.base_mag, player.fighter.mag)
+
+    # DEF
+    render_stat(1, 9, 'DEF',
+                player.fighter.base_defense, player.fighter.defense)
+
+    # REG
+    render_stat(1, 11, 'REG',
+                player.fighter.base_regen, player.fighter.regen)
 
     # Player Level & XP
     render_bar(1, panel_height - 2, bar_width, f'Lv{player.level}',
@@ -1485,12 +1690,13 @@ background.draw_rect(0, 0, screen_width, screen_height, ' ',
 
 # Create the player object
 fighter_mod = Fighter(hp=50, defense=1, power=5, xp=0,
-                      mp=15, mag=5, death_func=player_death)
+                      mp=15, mag=5, regen=1, death_func=player_death)
 player = Entity(
     0, 0, '@', 'player', colors.white, blocks=True,
     fighter=fighter_mod)
 
 # Player settings
+equipment = []
 inventory = []
 player.spells = []
 level_up_base = 200
@@ -1499,12 +1705,11 @@ level_screen_width = 40
 # mouse_coord = (0, 0)
 player_action = None
 player.level = 1
-player.regen_factor = 1
 
 # initialize the field
 dungeon_level = 1
 fov_recompute = True
-stairs = Entity(1, 1, '\\', 'stairs', colors.white,
+stairs = Entity(1, 1, '>', 'stairs', colors.white,
                 always_visible=True)
 objects = [player, stairs]
 make_field()

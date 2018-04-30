@@ -9,7 +9,9 @@ There's been a bit of a problem with some vermin lurking about, so watch out for
 Python >= 3.6  
 tdl
 
->`pip3 install tdl` or `pip3 install -r requirements.txt` with the included requirements file
+I recommend using a virtualenv!  
+https://virtualenvwrapper.readthedocs.io/en/latest/
+>`pip install tdl` or `pip install -r requirements.txt` with the included requirements file
 
 #### Controls:
 - `Arrow keys` = Move

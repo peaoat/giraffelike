@@ -395,7 +395,6 @@ class BasicMonster:
                 monster.fighter.attack(target)
 
 
-# TODO: display behemoth danger zone
 class Behemoth:
     """AI for Behemoth-style monsters
 
@@ -404,13 +403,69 @@ class Behemoth:
     Behemoths pay no heed to allies.
     """
 
+    def __init__(self):
+        # Behemoth has a 3 starburst danger zone
+        #                                (0, -3),
+        #            (-2, -2), (-1, -2), (0, -2), (+1, -2), (+2, -2),
+        #            (-2, -1), (-1, -1), (0, -1), (+1, -1), (+2, -1),
+        #  (-3,  0), (-2,  0), (-1,  0),          (+1,  0), (+2,  0), (+3,  0),
+        #            (-2, +1), (-1, +1), (0, +1), (+1, +1), (+2, +1),
+        #            (-2, +2), (-1, +2), (0, +2), (+1, +2), (+2, +2),
+        #                                (0, +3)
+        self.aura = [
+                                       (0, -3),
+                   (-2, -2), (-1, -2), (0, -2), (+1, -2), (+2, -2),
+                   (-2, -1), (-1, -1), (0, -1), (+1, -1), (+2, -1),
+         (-3,  0), (-2,  0), (-1,  0),          (+1,  0), (+2,  0), (+3,  0),
+                   (-2, +1), (-1, +1), (0, +1), (+1, +1), (+2, +1),
+                   (-2, +2), (-1, +2), (0, +2), (+1, +2), (+2, +2),
+                                       (0, +3)
+        ]
+
+    def danger_zone(self):
+        if (self.owner.x, self.owner.y) in visible_tiles:
+
+            con.draw_char(self.owner.x, self.owner.y,
+                          self.owner.char, self.owner.color)
+
+            for tx, ty in self.aura:
+                if not is_blocked(self.owner.x + tx, self.owner.y + ty) and \
+                        field[self.owner.x + tx][self.owner.y + ty].explored:
+                    con.draw_char(self.owner.x + tx, self.owner.y + ty, None,
+                                  fg=None, bg=colors.light_flame)
+
+    def draw(self):
+        # Dislpay this entity if it is in the player's FOV
+        # Some entities are 'always visible' after they've been found
+        if (self.owner.x, self.owner.y) in visible_tiles or \
+                (self.owner.always_visible and
+                 field[self.owner.x][self.owner.y].explored):
+            con.draw_char(self.owner.x, self.owner.y,
+                          self.owner.char, self.owner.color)
+
+    def death(self, monster):
+        monster.draw = self.draw
+        message(f'{monster.name.capitalize()} is slain!')
+        monster.name = f'what remains of {monster.name}'
+        monster.char = '%'
+        monster.color = colors.dark_red
+        monster.send_to_back()
+        # Disable the important mechanics on this entity
+        monster.blocks = False
+        monster.fighter = None
+        monster.ai = None
+
     def take_turn(self):
+        self.owner.draw = self.danger_zone
+        self.owner.fighter.death_func = self.death
+
         monster = self.owner
         if (monster.x, monster.y) in visible_tiles:
+
             if monster.distance_to(player) > 3:
                 pass
-            elif monster.distance_to(player) == 2:
-                monster.move_towards(player.x, player.y)
+            elif monster.distance_to(player) >= 2:
+                monster.move_smart(player.x, player.y)
             elif player.fighter.hp > 0:
                 monster.fighter.attack(player)
 
@@ -418,7 +473,7 @@ class Behemoth:
 # TODO: Allies should maybe be in a special list?
 # TODO: Limited number of allies? - probably in enthrall()
 # TODO: Ally command states - passive, aggressive, defensive
-# TODO: display ally stats - maybe under c?
+# TODO: display ally stats - maybe under a?
 class Ally:
     """AI for allied monsters
 
@@ -449,7 +504,7 @@ class Ally:
 
 
 def enthrall():
-    """Item module for enthralling a monster
+    """Item module for enthralling the nearest monster
 
     The nearest monster enters the service of the player
     """
@@ -785,6 +840,7 @@ def place_objects(room):
     xp_gain = dungeon_level * player.level / 2
     monster_dict = {
         'kobold' : {
+            'ai' : BasicMonster,
             'char' : 'k',
             'color' : colors.dark_azure,
             'fighter' : {
@@ -794,12 +850,12 @@ def place_objects(room):
                 'xp' : 30 + xp_gain,
                 'mp' : 0,
                 'mag' : 0,
-                'mag' : 0,
                 'death_func' : monster_death
             },
             'name' : 'kobold',
         },
         'orc' : {
+            'ai' : BasicMonster,
             'char' : 'o',
             'color' : colors.desaturated_green,
             'fighter' : {
@@ -814,6 +870,7 @@ def place_objects(room):
             'name' : 'orc',
         },
         'troll' : {
+            'ai' : Behemoth,
             'char' : 'T',
             'color' : colors.darker_green,
             'fighter' : {
@@ -846,10 +903,6 @@ def place_objects(room):
 
         if not is_blocked(x, y):
             this_monster = monster_dict[randomizer(monster_chances)]
-            if this_monster['name'] == 'troll':
-                this_ai = Behemoth()
-            else:
-                this_ai = BasicMonster()
 
             monster = Entity(x, y,
                              this_monster['char'],
@@ -857,25 +910,64 @@ def place_objects(room):
                              this_monster['color'],
                              blocks=True,
                              fighter=Fighter(**this_monster['fighter']),
-                             ai=this_ai)
+                             ai=this_monster['ai']())
 
             objects.append(monster)
 
     # Generate the items
 
     # TODO: Add more potion variations?
-    # TODO: Store and retrieve items from a dict like monsters
-    # eg item_dict = {'item name' : {'item_char' : '#'}}
-    # item_dict['item']['item_char'] == '#'
+    # TODO: More random potions -- like other RLs
+    # TODO: random equipment -- with keywords?
+    # make a method that generates stats combinations based on dungeon level
+    # TODO: clean up item storage and selection
+    # Would rather have a dict of dicts with more readability
+    # item_dict = { heal, mana, etc }
+    # randomizer(item_dict) == { 'item_name' : 'health potion', ... }
+    # possibly a method for creating a random item, this section is getting big
 
     max_items = dungeon_escalation([[1, 1], [2, 5], [3, 10]])
     num_items = randint(0, max_items)
-
-    # item dict in progress
     item_chances = {
-        'Healing Potion': 1,
-        'Mana Potion' : 1,
-        'Magic Missile' : 1}
+        'Healing Potion' : dungeon_escalation(
+            [[100, 1], [90, 3], [80, 5], [70, 7], [60, 9]]),
+        'Mana Potion' : dungeon_escalation(
+            [[1, 1], [5, 3], [15, 5], [20, 7], [25, 9]]),
+        'Magic Missile' : dungeon_escalation(
+            [[1, 1], [10, 3], [15, 7]]),
+        'Blink' : dungeon_escalation(
+            [[1, 1], [5, 3], [10, 5], [15, 7]]),
+        'Friendship' : dungeon_escalation(
+            [[1, 1], [2, 5], [4, 9]]),
+        'Sword' : 5,
+        'Shield' : 5,
+        'Staff' : 5,
+        'Orb' : 5,
+        'Bangle' : 5,
+        'Cloak' : 5
+        }
+
+    # item_dict literal entry template
+    """
+    '' : {
+        'item_name' : '',
+        'item_char' : '',
+        'item_color' : colors.,
+        'item' : {
+            'use_func' : ,
+            'kwargs' : {}
+            },
+        'equipment' : {
+            'slot' : '',
+            'max_hp' : 0,
+            'max_mp' : 0,
+            'power' : 0,
+            'defense' : 0,
+            'magick' : 0,
+            'regen' : 0
+            }
+        },
+    """
 
     item_dict = {
         'Healing Potion': {
@@ -885,8 +977,8 @@ def place_objects(room):
             'item': {
                 'use_func': healing,
                 'kwargs': {
-                    'hp_lower': int(player.fighter.max_hp
-                                    * (0.04 + (player.fighter.regen * 0.011))),
+                    'hp_lower': int(round(player.fighter.max_hp
+                                    * (0.04 + player.fighter.regen * 0.011), 1)),
                     'hp_upper': int(player.fighter.max_hp
                                     * (0.12 + (player.fighter.regen * 0.01))
                                     ),
@@ -909,7 +1001,7 @@ def place_objects(room):
             'equipment' : None
             },
         'Magic Missile': {
-            'item_name': 'Magic Missile',
+            'item_name': 'Scroll of Magic Missile',
             'item_char': '#',
             'item_color': colors.light_blue,
             'item': {
@@ -922,7 +1014,119 @@ def place_objects(room):
             },
             'equipment': None
             },
-
+        'Blink' : {
+            'item_name' : 'Scroll of Blink',
+            'item_char' : '#',
+            'item_color' : colors.light_violet,
+            'item' : {
+                'use_func' : teleport,
+                'kwargs' : {'ent' : player,
+                            'mp_cost' : 0}
+                },
+            'equipment' : None
+            },
+        'Friendship' : {
+            'item_name' : 'Scroll of Friendship',
+            'item_char' : '#',
+            'item_color' : colors.gold,
+            'item' : {
+                'use_func' : enthrall,
+                'kwargs' : {}
+                },
+            'equipment' : None
+            },
+        'Sword' : {
+            'item_name' : f'Lv{dungeon_level - 1} Sword',
+            'item_char' : 'l',
+            'item_color' : colors.light_sky,
+            'item' : None,
+            'equipment' : {
+                'slot' : 'right hand',
+                'max_hp' : 0,
+                'max_mp' : 0,
+                'power' : int(round(dungeon_level * 1.1)),
+                'defense' : 0,
+                'magick' : 0,
+                'regen' : 0
+                }
+            },
+        'Shield' : {
+            'item_name' : f'Lv{dungeon_level - 1} Shield',
+            'item_char' : 'u',
+            'item_color' : colors.light_sky,
+            'item' : None,
+            'equipment' : {
+                'slot' : 'left hand',
+                'max_hp' : 0,
+                'max_mp' : 0,
+                'power' : 0,
+                'defense' : int(round(dungeon_level * 1.3)),
+                'magick' : 0,
+                'regen' : 0
+                }
+            },
+        'Staff' : {
+            'item_name' : f'Lv{dungeon_level - 1} Staff',
+            'item_char' : 'Y',
+            'item_color' : colors.light_sky,
+            'item' : None,
+            'equipment' : {
+                'slot' : 'right hand',
+                'max_hp' : 0,
+                'max_mp' : 0,
+                'power' : 0,
+                'defense' : 0,
+                'magick' : int(round(dungeon_level * 1.1)),
+                'regen' : 0
+                }
+            },
+        'Orb' : {
+            'item_name' : f'Lv{dungeon_level - 1} Orb',
+            'item_char' : 'o',
+            'item_color' : colors.light_sky,
+            'item' : None,
+            'equipment' : {
+                'slot' : 'left hand',
+                'max_hp' : 0,
+                'max_mp' : int(round(player.fighter.base_max_mp *
+                                     (0.09 + dungeon_level * 0.01))),
+                'power' : 0,
+                'defense' : 0,
+                'magick' : 0,
+                'regen' : 0
+                }
+            },
+        'Bangle' : {
+            'item_name' : f'Lv{dungeon_level - 1} Bangle',
+            'item_char' : 'c',
+            'item_color' : colors.light_sky,
+            'item' : None,
+            'equipment' : {
+                'slot' : 'accessory',
+                'max_hp' : int(round(player.fighter.max_hp *
+                                     (0.04 + dungeon_level * 0.01))),
+                'max_mp' : 0,
+                'power' : 0,
+                'defense' : 0,
+                'magick' : 0,
+                'regen' : 0
+                }
+            },
+        'Cloak' : {
+            'item_name' : f'Lv{dungeon_level - 1} Cloak',
+            'item_char' : '&',
+            'item_color' : colors.light_sky,
+            'item' : None,
+            'equipment' : {
+                'slot' : 'shoulders',
+                'max_hp' : 0,
+                'max_mp' : 0,
+                'power' : 0,
+                'defense' : 0,
+                'magick' : 0,
+                'regen' : int(1 + round(dungeon_level / 2))
+                }
+            }
         }
 
     for _ in range(num_items):
@@ -933,144 +1137,27 @@ def place_objects(room):
         if not is_blocked(x, y):
             item_chosen = item_dict[randomizer(item_chances)]
 
-            item = Entity(x, y, item_chosen['item_char'], item_chosen['item_name'],
-                          item_chosen['item_color'], always_visible=True,
-                          item=Item(**item_chosen['item']) \
-                                if item_chosen['item'] is not None else None,
-                          equipment=Equipment(**item_chosen['equipment']) \
-                                if item_chosen['equipment'] is not None else None)
+            item = Entity(x, y, item_chosen['item_char'],
+                          item_chosen['item_name'],
+                          item_chosen['item_color'],
+                          always_visible=True,
+
+                          item=Item(**item_chosen['item'])
+                          if item_chosen['item'] is not None else None,
+
+                          equipment=Equipment(**item_chosen['equipment'])
+                          if item_chosen['equipment'] is not None else None)
 
             objects.append(item)
             item.send_to_back()
-
-    # item_chances = {'Healing Potion' : dungeon_escalation(
-    #                     [[100, 1], [90, 3], [80, 5], [70, 7], [60, 9]]),
-    #                 'Mana Potion' : dungeon_escalation(
-    #                     [[1, 1], [5, 3], [15, 5], [20, 7], [25, 9]]),
-    #                 'Scroll of Magic Missile' : dungeon_escalation(
-    #                     [[1, 1], [10, 3], [15, 7]]),
-    #                 'Scroll of Blink' : dungeon_escalation(
-    #                     [[1, 1], [5, 3], [10, 5], [15, 7]]),
-    #                 'Scroll of Friendship' : dungeon_escalation(
-    #                     [[1, 1], [2, 5], [4, 9]]),
-    #                 'Sword': 5,
-    #                 'Shield': 5
-    #                 }
-    #
-    # for _ in range(num_items):
-    #     x = randint(room.x1 + 1, room.x2 - 1)
-    #     y = randint(room.y1 + 1, room.y2 - 1)
-    #
-    #     # Do not place items on blocked areas
-    #     if not is_blocked(x, y):
-    #
-    #         item_module = None
-    #         equipment_module = None
-    #
-    #         this_item = randomizer(item_chances)
-    #
-    #         if this_item == 'Healing Potion':
-    #             # healing(hp_lower=int,hp_upper=int, mp_cost=int)
-    #             hp_lower = int(player.fighter.max_hp
-    #                            * (0.04 + (player.fighter.regen * 0.011))
-    #                            )
-    #             hp_upper = int(player.fighter.max_hp
-    #                            * (0.12 + (player.fighter.regen * 0.01))
-    #                            )
-    #             if hp_lower < 1:
-    #                 hp_lower = 1
-    #             if hp_upper <= hp_lower:
-    #                 hp_upper = hp_lower + 4
-    #
-    #             minor_potion = {'hp_lower': hp_lower,
-    #                             'hp_upper': hp_upper,
-    #                             'mp_cost': 0}
-    #
-    #             item_char = '!'
-    #             item_color = colors.light_red
-    #             item_name = 'Healing Potion'
-    #             item_module = Item(use_func=healing,
-    #                                kwargs=minor_potion)
-    #
-    #         elif this_item == 'Mana Potion':
-    #             # mana_recovery(mp_lower=int, mp_upper=int)
-    #             mp_lower = int(player.fighter.max_mp * 0.05)
-    #             mp_upper = int(player.fighter.max_mp * 0.12)
-    #             if mp_lower < 1:
-    #                 mp_lower = 1
-    #             if mp_upper <= mp_lower:
-    #                 mp_upper = mp_lower + 1
-    #             minor_mana = {'mp_lower': mp_lower,
-    #                           'mp_upper': mp_upper}
-    #
-    #             item_char = '!'
-    #             item_color = colors.light_azure
-    #             item_name = 'Mana Potion'
-    #             item_module = Item(use_func=mana_recovery,
-    #                                kwargs=minor_mana)
-    #
-    #         elif this_item == 'Scroll of Magic Missile':
-    #             # # magic_missile(caster=Entity(), damage=int, mp_cost=int)
-    #             damage = (dungeon_level // 2) + 7
-    #             minor_missile = {'caster' : player,
-    #                              'damage': damage,
-    #                              'mp_cost': 0}
-    #
-    #             item_char = '#'
-    #             item_color = colors.light_blue
-    #             item_name = 'Scroll of Magic Missile'
-    #             item_module = Item(use_func=magic_missile,
-    #                                kwargs=minor_missile)
-    #
-    #         elif this_item == 'Scroll of Blink':
-    #             # # teleport(ent=Entity(), mp_cost=int)
-    #             blink = {'ent' : player,
-    #                      'mp_cost' : 0}
-    #             item_char = '#'
-    #             item_color = colors.light_violet
-    #             item_name = 'Scroll of Blink'
-    #             item_module = Item(use_func=teleport,
-    #                                kwargs=blink)
-    #         elif this_item == 'Scroll of Friendship':
-    #             # # enthrall()
-    #             item_char = '#'
-    #             item_color = colors.gold
-    #             item_name = 'Scroll of Friendship'
-    #             item_module = Item(use_func=enthrall)
-    #         elif this_item == 'Sword':
-    #             #   Equipment(slot, max_hp, max_mp,
-    #             # power, defense, magick, regen))
-    #             item_char = 'l'
-    #             item_color = colors.dark_sky
-    #             item_name = 'Sword'
-    #             sword_pow = int(round(dungeon_level * 1.1))
-    #             equipment_module = Equipment(slot='right hand',
-    #                                          power=sword_pow)
-    #
-    #         else:
-    #             # if this_item == 'Shield':
-    #             # Equipment(slot, max_hp, max_mp,
-    #             # power, defense, magick, regen))
-    #             item_char = 'u'
-    #             item_color = colors.dark_sky
-    #             item_name = 'Shield'
-    #             shield_power = int(round(dungeon_level * 1.3))
-    #             equipment_module = Equipment(slot='left hand',
-    #                                          defense=shield_power)
-    #
-    #         item = Entity(x, y, item_char, item_name,
-    #                       item_color, always_visible=True, item=item_module,
-    #                       equipment=equipment_module)
-    #         objects.append(item)
-    #         item.send_to_back()
 
 
 def random_index(chances):
     """Returns the index which matches a randomized choice
 
     Keyword Arguments:
-    chances -(list of ints)- each int represents the likelihood of being chosen
-        compared to the sum of the list"""
+        chances -(list of ints)- each int represents the likelihood of being
+    chosen compared to the sum of the list"""
 
     die = randint(1, sum(chances))
     total = 0
@@ -1092,7 +1179,13 @@ def randomizer(chance_dict):
 
 def dungeon_escalation(table):
     """ Picks the pair with the highest 1th entry that is <= dungeon_level and
-    returns the 0th entry in that pair or 0"""
+    returns the 0th entry in that pair or 0
+
+    Keyword Arguments:
+        table -(list)- this list must contain entries which consist of two
+    values, either as tuples or lists in the order [value, level], where
+    value represents that item's portion of the drop pool and
+    level represents which floor to start having that likelihood"""
 
     for (value, level) in reversed(table):
         if dungeon_level >= level:

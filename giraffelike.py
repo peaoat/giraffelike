@@ -8,8 +8,8 @@ import tdl
 import textwrap
 from random import randint
 
-if sys.version_info.major != 3 or sys.version_info.minor < 6:
-    print("This game requires Python version 3.6 or greater.")
+if sys.version_info.major != 3 or sys.version_info.minor != 6:
+    print("This game requires Python version 3.6.")
     sys.exit(1)
 
 # # # # # # # # # # # # # # # # # # # #
@@ -62,16 +62,13 @@ class Entity:
     def clear(self):
         con.draw_char(self.x, self.y, ' ', self.color)
 
-    def distance(self, x, y):
-        return math.sqrt((x - self.x) ** 2 + (y - self.y) ** 2)
-
     def distance_to(self, other):
         dx = other.x - self.x
         dy = other.y - self.y
         return math.sqrt(dx ** 2 + dy ** 2)
 
     def draw(self):
-        # Dislpay this entity if it is in the player's FOV
+        # Display this entity if it is in the player's FOV
         # Some entities are 'always visible' after they've been found
         if (self.x, self.y) in visible_tiles or \
                 (self.always_visible and field[self.x][self.y].explored):
@@ -443,6 +440,8 @@ class Behemoth:
             con.draw_char(self.owner.x, self.owner.y,
                           self.owner.char, self.owner.color)
 
+    # TODO: fix this death_func shit so behemoths have their own death_func
+    # instead of this nonsense
     def death(self, monster):
         monster.draw = self.draw
         message(f'{monster.name.capitalize()} is slain!')
@@ -450,7 +449,6 @@ class Behemoth:
         monster.char = '%'
         monster.color = colors.dark_red
         monster.send_to_back()
-        # Disable the important mechanics on this entity
         monster.blocks = False
         monster.fighter = None
         monster.ai = None
@@ -835,19 +833,22 @@ def place_objects(room):
     # TODO: Method for generating long dungeon escalation?
     # TODO: monster stat leveling formulae adjustment
     # exponential increase instead of linear?
-    every_five = int(dungeon_level * 0.2)
-    every_four = int(dungeon_level * 0.25)
-    xp_gain = dungeon_level * player.level / 2
+
+    every_five = lambda base : int(dungeon_level * 0.2 + base)
+    every_four = lambda base : int(dungeon_level * 0.25 + base)
+
+    xp_gain = lambda base : base + dungeon_level * player.level / 2
+
     monster_dict = {
         'kobold' : {
             'ai' : BasicMonster,
             'char' : 'k',
             'color' : colors.dark_azure,
             'fighter' : {
-                'hp' : 6 + every_five,
-                'defense' : 0 + every_five,
-                'power' : 3 + every_five,
-                'xp' : 30 + xp_gain,
+                'hp' : every_five(6),
+                'defense' : every_five(0),
+                'power' : every_five(3),
+                'xp' : xp_gain(30),
                 'mp' : 0,
                 'mag' : 0,
                 'death_func' : monster_death
@@ -859,10 +860,10 @@ def place_objects(room):
             'char' : 'o',
             'color' : colors.desaturated_green,
             'fighter' : {
-                'hp' : 12 + every_five,
-                'defense' : 1 + every_five,
-                'power' : 3 + every_five,
-                'xp' : 40 + xp_gain,
+                'hp' : every_five(12),
+                'defense' : every_five(1),
+                'power' : every_five(3),
+                'xp' : xp_gain(40),
                 'mp' : 0,
                 'mag' : 0,
                 'death_func' : monster_death
@@ -874,10 +875,10 @@ def place_objects(room):
             'char' : 'T',
             'color' : colors.darker_green,
             'fighter' : {
-                'hp' : 15 + every_four,
-                'defense' : 2 + every_four,
-                'power' : 5 + every_four,
-                'xp' : 50 + xp_gain,
+                'hp' : every_four(15),
+                'defense' : every_four(2),
+                'power' : every_four(5),
+                'xp' : xp_gain(50),
                 'mp' : 0,
                 'mag' : 0,
                 'death_func' : monster_death

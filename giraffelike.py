@@ -3,13 +3,15 @@
 
 import colors
 import math
+import numpy as np
 import sys
+import tcod.path
 import tdl
 import textwrap
 from random import randint
 
 if sys.version_info.major != 3 or sys.version_info.minor != 6:
-    print("This game requires Python version 3.6.")
+    print("This game requires Python version 3.6")
     sys.exit(1)
 
 # # # # # # # # # # # # # # # # # # # #
@@ -90,7 +92,8 @@ class Entity:
         dy = int(round(dy / distance))
         gotox = self.x + dx
         gotoy = self.y + dy
-        if is_blocked(gotox, gotoy) and gotox != player.x and gotoy != player.y:
+        if is_blocked(gotox,
+                      gotoy) and gotox != player.x and gotoy != player.y:
             if gotoy == self.y:
                 if target_y > self.y:
                     if not is_blocked(gotox, gotoy + 1):
@@ -113,12 +116,17 @@ class Entity:
         dy = int(round(dy / distance))
         self.move(dx, dy)
 
+    def move_astar(self, target_x, target_y):
+        path = astar.get_path(self.x, self.y, target_x, target_y)
+
+        print(path)
+
     def send_to_back(self):
         global objects
         objects.remove(self)
         objects.insert(0, self)
 
-    def closest_monster(self, max_range) :
+    def closest_monster(self, max_range):
         closest_enemy = None
         closest_dist = max_range + 1
         for obj in objects:
@@ -378,7 +386,7 @@ class BasicMonster:
     def take_turn(self):
         monster = self.owner
 
-        if (monster.x, monster.y) in visible_tiles :
+        if (monster.x, monster.y) in visible_tiles:
             target = player
             if self.owner.closest_monster(4) is not None:
                 other = self.owner.closest_monster(4)
@@ -388,6 +396,7 @@ class BasicMonster:
 
             if monster.distance_to(target) >= 2:
                 monster.move_towards(target.x, target.y)
+                # monster.move_astar(target.x, target.y)
             elif player.fighter.hp > 0:
                 monster.fighter.attack(target)
 
@@ -410,13 +419,13 @@ class Behemoth:
         #            (-2, +2), (-1, +2), (0, +2), (+1, +2), (+2, +2),
         #                                (0, +3)
         self.aura = [
-                                       (0, -3),
-                   (-2, -2), (-1, -2), (0, -2), (+1, -2), (+2, -2),
-                   (-2, -1), (-1, -1), (0, -1), (+1, -1), (+2, -1),
-         (-3,  0), (-2,  0), (-1,  0),          (+1,  0), (+2,  0), (+3,  0),
-                   (-2, +1), (-1, +1), (0, +1), (+1, +1), (+2, +1),
-                   (-2, +2), (-1, +2), (0, +2), (+1, +2), (+2, +2),
-                                       (0, +3)
+            (0, -3),
+            (-2, -2), (-1, -2), (0, -2), (+1, -2), (+2, -2),
+            (-2, -1), (-1, -1), (0, -1), (+1, -1), (+2, -1),
+            (-3, 0), (-2, 0), (-1, 0), (+1, 0), (+2, 0), (+3, 0),
+            (-2, +1), (-1, +1), (0, +1), (+1, +1), (+2, +1),
+            (-2, +2), (-1, +2), (0, +2), (+1, +2), (+2, +2),
+            (0, +3)
         ]
 
     def danger_zone(self):
@@ -431,31 +440,8 @@ class Behemoth:
                     con.draw_char(self.owner.x + tx, self.owner.y + ty, None,
                                   fg=None, bg=colors.light_flame)
 
-    def draw(self):
-        # Dislpay this entity if it is in the player's FOV
-        # Some entities are 'always visible' after they've been found
-        if (self.owner.x, self.owner.y) in visible_tiles or \
-                (self.owner.always_visible and
-                 field[self.owner.x][self.owner.y].explored):
-            con.draw_char(self.owner.x, self.owner.y,
-                          self.owner.char, self.owner.color)
-
-    # TODO: fix this death_func shit so behemoths have their own death_func
-    # instead of this nonsense
-    def death(self, monster):
-        monster.draw = self.draw
-        message(f'{monster.name.capitalize()} is slain!')
-        monster.name = f'what remains of {monster.name}'
-        monster.char = '%'
-        monster.color = colors.dark_red
-        monster.send_to_back()
-        monster.blocks = False
-        monster.fighter = None
-        monster.ai = None
-
     def take_turn(self):
         self.owner.draw = self.danger_zone
-        self.owner.fighter.death_func = self.death
 
         monster = self.owner
         if (monster.x, monster.y) in visible_tiles:
@@ -595,7 +581,7 @@ def mana_recovery(mp_lower, mp_upper):
     message(f'You recovered {rec_mp} MP.', colors.azure)
 
 
-def teleport(ent, mp_cost) :
+def teleport(ent, mp_cost):
     """Item and spell module for teleporting the player to a random tile
 
     Keyword Arguments:
@@ -603,20 +589,20 @@ def teleport(ent, mp_cost) :
     mp_cost -(int)- the amount of mp required to cast the spell
     """
 
-    if player.fighter.mp < mp_cost :
+    if player.fighter.mp < mp_cost:
         message(f'Your spell fizzles. You need at least {mp_cost} MP.',
                 colors.yellow)
         return 'cancel'
-    else :
+    else:
         player.fighter.mp -= mp_cost
 
     x, y = randint(0, field_width - 1), randint(0, field_height - 1)
 
-    while is_blocked(x, y) :
+    while is_blocked(x, y):
         x, y = randint(0, field_width - 1), randint(0, field_height - 1)
 
     ent.x, ent.y = x, y
-    if ent == player :
+    if ent == player:
         global fov_recompute
         fov_recompute = True
 
@@ -641,6 +627,23 @@ def monster_death(monster):
     monster.color = colors.dark_red
     monster.send_to_back()
     # Disable the important mechanics on this entity
+    monster.blocks = False
+    monster.fighter = None
+    monster.ai = None
+
+
+def behemoth_death(monster):
+    def draw():
+        if (monster.x, monster.y) in visible_tiles or \
+                (monster.always_visible and
+                 field[monster.x][monster.y].explored):
+            con.draw_char(monster.x, monster.y, monster.char, monster.color)
+    monster.draw = draw
+    message(f'The behemoth {monster.name.capitalize()} collapses.')
+    monster.name = f'what remains of {monster.name}'
+    monster.char = '%'
+    monster.color = colors.dark_red
+    monster.send_to_back()
     monster.blocks = False
     monster.fighter = None
     monster.ai = None
@@ -683,6 +686,7 @@ class Tile:
     blocked -(bool)- walkable if true, unwalkable if false
     block_sight -(bool)- for FOV, blocks LOS if true
     """
+
     def __init__(self, blocked, block_sight=None):
         self.blocked = blocked
         self.explored = False
@@ -834,10 +838,20 @@ def place_objects(room):
     # TODO: monster stat leveling formulae adjustment
     # exponential increase instead of linear?
 
-    every_five = lambda base : int(dungeon_level * 0.2 + base)
-    every_four = lambda base : int(dungeon_level * 0.25 + base)
+    def linear_increase(base, percentage, rate):
+        """ Every rate levels, the base value will have grown by percentage,
+        rounded down to the nearest integer.
 
-    xp_gain = lambda base : base + dungeon_level * player.level / 2
+        Keyword Arguments:
+        base -- level 0 amount the monster will have in this stat
+        percentage -- the amount to increase (1 for 100%, 0.05 for 5%)
+        rate -- after how many levels the stat will increase
+        """
+
+        return int(base + base * percentage * dungeon_level / rate)
+
+    def xp_gain(base):
+        return base + dungeon_level * player.level / 2
 
     monster_dict = {
         'kobold' : {
@@ -845,9 +859,9 @@ def place_objects(room):
             'char' : 'k',
             'color' : colors.dark_azure,
             'fighter' : {
-                'hp' : every_five(6),
-                'defense' : every_five(0),
-                'power' : every_five(3),
+                'hp' : linear_increase(6, 0.5, 5),
+                'defense' : linear_increase(1, 1, 5),
+                'power' : linear_increase(3, 0.2, 5),
                 'xp' : xp_gain(30),
                 'mp' : 0,
                 'mag' : 0,
@@ -860,9 +874,9 @@ def place_objects(room):
             'char' : 'o',
             'color' : colors.desaturated_green,
             'fighter' : {
-                'hp' : every_five(12),
-                'defense' : every_five(1),
-                'power' : every_five(3),
+                'hp' : linear_increase(12, 0.2, 5),
+                'defense' : linear_increase(1, 1, 5),
+                'power' : linear_increase(3, 0.3, 5),
                 'xp' : xp_gain(40),
                 'mp' : 0,
                 'mag' : 0,
@@ -875,13 +889,13 @@ def place_objects(room):
             'char' : 'T',
             'color' : colors.darker_green,
             'fighter' : {
-                'hp' : every_four(15),
-                'defense' : every_four(2),
-                'power' : every_four(5),
+                'hp' : linear_increase(15, 0.1, 4),
+                'defense' : linear_increase(2, 0.3, 4),
+                'power' : linear_increase(5, 0.2, 4),
                 'xp' : xp_gain(50),
                 'mp' : 0,
                 'mag' : 0,
-                'death_func' : monster_death
+                'death_func' : behemoth_death
             },
             'name' : 'troll',
         }
@@ -889,14 +903,15 @@ def place_objects(room):
     monster_max = dungeon_escalation([[2, 1], [3, 4], [5, 6]])
     num_monsters = randint(0, monster_max)
 
-    monster_chances = {'kobold' : dungeon_escalation(
-                        [[100, 1], [90, 3], [84, 5], [78, 7], [60, 9]]),
+    monster_chances = {
+        'kobold' : dungeon_escalation(
+            [[100, 1], [90, 3], [84, 5], [78, 7], [60, 9]]),
 
-                       'orc' : dungeon_escalation(
-                           [[10, 3], [15, 5], [20, 7], [35, 9]]),
+        'orc' : dungeon_escalation(
+            [[10, 3], [15, 5], [20, 7], [35, 9]]),
 
-                       'troll' : dungeon_escalation(
-                           [[1, 5], [2, 7], [5, 9]])}
+        'troll' : dungeon_escalation(
+            [[1, 5], [2, 7], [5, 9]])}
 
     for i in range(num_monsters):
         x = randint(room.x1 + 1, room.x2 - 1)
@@ -946,7 +961,7 @@ def place_objects(room):
         'Orb' : 5,
         'Bangle' : 5,
         'Cloak' : 5
-        }
+    }
 
     # item_dict literal entry template
     """
@@ -971,22 +986,24 @@ def place_objects(room):
     """
 
     item_dict = {
-        'Healing Potion': {
-            'item_name': 'Healing Potion',
-            'item_char': '!',
-            'item_color': colors.light_red,
-            'item': {
-                'use_func': healing,
-                'kwargs': {
-                    'hp_lower': int(round(player.fighter.max_hp
-                                    * (0.04 + player.fighter.regen * 0.011), 1)),
-                    'hp_upper': int(player.fighter.max_hp
-                                    * (0.12 + (player.fighter.regen * 0.01))
-                                    ),
-                    'mp_cost': 0
+        'Healing Potion' : {
+            'item_name' : 'Healing Potion',
+            'item_char' : '!',
+            'item_color' : colors.light_red,
+            'item' : {
+                'use_func' : healing,
+                'kwargs' : {
+                    'hp_lower' : int(round(player.fighter.max_hp
+                                           * (
+                                                   0.04 + player.fighter.regen * 0.011),
+                                           1)),
+                    'hp_upper' : int(player.fighter.max_hp
+                                     * (0.12 + (player.fighter.regen * 0.01))
+                                     ),
+                    'mp_cost' : 0
                 }
             },
-            'equipment': None
+            'equipment' : None
         },
         'Mana Potion' : {
             'item_name' : 'Mana Potion',
@@ -997,24 +1014,24 @@ def place_objects(room):
                 'kwargs' : {
                     'mp_lower' : int(player.fighter.max_mp * 0.05),
                     'mp_upper' : int(player.fighter.max_mp * 0.12)
-                    }
-                },
-            'equipment' : None
-            },
-        'Magic Missile': {
-            'item_name': 'Scroll of Magic Missile',
-            'item_char': '#',
-            'item_color': colors.light_blue,
-            'item': {
-                'use_func': magic_missile,
-                'kwargs': {
-                    'caster': player,
-                    'damage': dungeon_level // 2 + 7,
-                    'mp_cost': 0
                 }
             },
-            'equipment': None
+            'equipment' : None
+        },
+        'Magic Missile' : {
+            'item_name' : 'Scroll of Magic Missile',
+            'item_char' : '#',
+            'item_color' : colors.light_blue,
+            'item' : {
+                'use_func' : magic_missile,
+                'kwargs' : {
+                    'caster' : player,
+                    'damage' : dungeon_level // 2 + 7,
+                    'mp_cost' : 0
+                }
             },
+            'equipment' : None
+        },
         'Blink' : {
             'item_name' : 'Scroll of Blink',
             'item_char' : '#',
@@ -1023,9 +1040,9 @@ def place_objects(room):
                 'use_func' : teleport,
                 'kwargs' : {'ent' : player,
                             'mp_cost' : 0}
-                },
-            'equipment' : None
             },
+            'equipment' : None
+        },
         'Friendship' : {
             'item_name' : 'Scroll of Friendship',
             'item_char' : '#',
@@ -1033,9 +1050,9 @@ def place_objects(room):
             'item' : {
                 'use_func' : enthrall,
                 'kwargs' : {}
-                },
-            'equipment' : None
             },
+            'equipment' : None
+        },
         'Sword' : {
             'item_name' : f'Lv{dungeon_level - 1} Sword',
             'item_char' : 'l',
@@ -1049,8 +1066,8 @@ def place_objects(room):
                 'defense' : 0,
                 'magick' : 0,
                 'regen' : 0
-                }
-            },
+            }
+        },
         'Shield' : {
             'item_name' : f'Lv{dungeon_level - 1} Shield',
             'item_char' : 'u',
@@ -1064,8 +1081,8 @@ def place_objects(room):
                 'defense' : int(round(dungeon_level * 1.3)),
                 'magick' : 0,
                 'regen' : 0
-                }
-            },
+            }
+        },
         'Staff' : {
             'item_name' : f'Lv{dungeon_level - 1} Staff',
             'item_char' : 'Y',
@@ -1079,8 +1096,8 @@ def place_objects(room):
                 'defense' : 0,
                 'magick' : int(round(dungeon_level * 1.1)),
                 'regen' : 0
-                }
-            },
+            }
+        },
         'Orb' : {
             'item_name' : f'Lv{dungeon_level - 1} Orb',
             'item_char' : 'o',
@@ -1095,8 +1112,8 @@ def place_objects(room):
                 'defense' : 0,
                 'magick' : 0,
                 'regen' : 0
-                }
-            },
+            }
+        },
         'Bangle' : {
             'item_name' : f'Lv{dungeon_level - 1} Bangle',
             'item_char' : 'c',
@@ -1111,8 +1128,8 @@ def place_objects(room):
                 'defense' : 0,
                 'magick' : 0,
                 'regen' : 0
-                }
-            },
+            }
+        },
         'Cloak' : {
             'item_name' : f'Lv{dungeon_level - 1} Cloak',
             'item_char' : '&',
@@ -1126,9 +1143,9 @@ def place_objects(room):
                 'defense' : 0,
                 'magick' : 0,
                 'regen' : int(1 + round(dungeon_level / 2))
-                }
             }
         }
+    }
 
     for _ in range(num_items):
         x = randint(room.x1 + 1, room.x2 - 1)
@@ -1206,12 +1223,26 @@ def next_level():
 
     message('During a calm moment, you find time to rest...', colors.white)
     message(f'You regained {regen_hp} hp.', colors.light_red)
-    message(f'You regained {regen_mp} mp.', colors. light_blue)
+    message(f'You regained {regen_mp} mp.', colors.light_blue)
     message('Back to work...', colors.chartreuse)
 
     con.clear(fg=colors.black, bg=colors.black)
     root.clear(fg=colors.black, bg=colors.black)
     make_field()
+
+
+def new_astar_map(field):
+    bool_field = [[0 for _ in range(field_width)] for _ in range(field_height)]
+
+    for y in range(field_height):
+        for x in range(field_width):
+            bool_field[y][x] = 0 if field[x][y].blocked else 1
+
+    for obj in objects:
+        bool_field[obj.y][obj.x] = 1
+
+    dungeon = np.array(bool_field, dtype=np.int8)
+    return tcod.path.AStar(dungeon, 1)
 
 
 # # # # # # # # # # # # # # # # # # # #
@@ -1302,8 +1333,8 @@ def check_level_up():
 
         # TODO: def & reg formulae?
 
-        choice_list = [f'HP : {player.fighter.base_max_hp} (+ {adv_hp})',
-                       f'MP : {player.fighter.base_max_mp} (+ {adv_mp})',
+        choice_list = [f'HP: {player.fighter.base_max_hp} (+ {adv_hp})',
+                       f'MP: {player.fighter.base_max_mp} (+ {adv_mp})',
                        f'STR: {player.fighter.base_power} (+ {adv_str})',
                        f'MAG: {player.fighter.base_mag} (+ {adv_mag})',
                        f'DEF: {player.fighter.base_defense} (+ 1)',
@@ -1377,7 +1408,7 @@ def handle_keys():
 
     user_input = tdl.event.key_wait()
 
-    # esc : quit
+    # esc: quit
     if user_input.key == 'ESCAPE':
         return 'exit'
 
@@ -1399,16 +1430,16 @@ def handle_keys():
         elif user_input.key == 'SPACE':
             message('You twiddle your thumbs')
 
-        # s : cast a spell
+        # s: cast a spell
         elif user_input.char == 's':
             if cast_spell() == 'cancel':
                 return 'no-turn'
 
-        # i : use an item from inventory
+        # i: use an item from inventory
         elif user_input.char == 'i':
             chosen_item = inventory_menu(
                 'Choose an item to use, esc to cancel\n', inventory)
-            if chosen_item != 'cancel' :
+            if chosen_item != 'cancel':
                 chosen_item.use()
             else:
                 return 'no-turn'
@@ -1422,26 +1453,26 @@ def handle_keys():
 
         # actions which do not consume a turn
         else:
-            # \ : descend to the next level
+            # \: descend to the next level
             if user_input.char == '.':
                 if player.x == stairs.x and player.y == stairs.y:
                     next_level()
 
-            # shift : pick up item beneath player
+            # shift: pick up item beneath player
             elif user_input.key == 'SHIFT':
                 for item in objects:
                     if item.x == player.x and item.y == player.y and item.item:
                         item.item.pick_up()
                         break
 
-            # o : drop an item from inventory
+            # o: drop an item from inventory
             elif user_input.char == 'o':
                 chosen_item = inventory_menu(
                     'Choose an item to drop, esc to cancel\n', inventory)
                 if chosen_item is not 'cancel':
                     chosen_item.drop()
 
-            # r : drop an item from equipment
+            # r: drop an item from equipment
             elif user_input.char == 'r':
                 chosen_equip = inventory_menu(
                     'Choose an item to drop, esc to cancel\n', equipment)
@@ -1480,7 +1511,7 @@ def get_notable_feature(equip):
         'REG': equip.equipment.regen
     }
 
-    notable_feature = max(stats, key= lambda key: stats[key])
+    notable_feature = max(stats, key=lambda key: stats[key])
 
     return f'{notable_feature}: {stats[notable_feature]}'
 
@@ -1502,7 +1533,7 @@ def menu(header, options, width):
     window = tdl.Console(width, height)
     window.draw_rect(0, 0, width, height, None, bg=colors.dark_gray)
     for i, line in enumerate(header_wrapped):
-        window.draw_str(1, 0+i, header_wrapped[i], fg=colors.light_gray)
+        window.draw_str(1, 0 + i, header_wrapped[i], fg=colors.light_gray)
 
     y = header_height + 1
     letter_index = ord('a')
@@ -1515,7 +1546,7 @@ def menu(header, options, width):
                 y += 1
                 letter_index += 1
         else:
-            for option in options :
+            for option in options:
                 text = f'({chr(letter_index)}) {option}'
                 window.draw_str(0, y, text, fg=colors.white, bg=None)
                 y += 1
@@ -1623,7 +1654,7 @@ def player_move(dx, dy):
 
     if target is not None:
         # If target is your ally, swap places with it
-        if target.name == 'Your ally' :
+        if target.name == 'Your ally':
             player.x, target.x = target.x, player.x
             player.y, target.y = target.y, player.y
         # Attack otherwise
@@ -1653,10 +1684,10 @@ def render_bar(x, y, total_width, name, value, maximum,
     panel.draw_str(x_centered, y, text, fg=text_color, bg=None)
 
 
-def render_stat(x, y, name, base_stat, stat) :
-    if base_stat < stat :
+def render_stat(x, y, name, base_stat, stat):
+    if base_stat < stat:
         color = colors.light_green
-    else :
+    else:
         color = colors.white
 
     panel.draw_str(x, y, f'{name}:', bg=None, fg=colors.white)
@@ -1693,11 +1724,11 @@ def render_all():
                         con.draw_char(x, y, None, fg=None, bg=c_dark_wall)
                     else:
                         con.draw_char(x, y, None, fg=None, bg=c_dark_gnd)
-                # # Uncomment this block to see the map outline
-                # if wall :
-                #     con.draw_char(x, y, None, fg=None, bg=c_dark_wall)
-                # else :
-                #     con.draw_char(x, y, None, fg=None, bg=c_dark_gnd)
+                # Uncomment this block to see the map outline
+                if wall:
+                    con.draw_char(x, y, None, fg=None, bg=c_dark_wall)
+                else:
+                    con.draw_char(x, y, None, fg=None, bg=c_dark_gnd)
 
             # If this tile is in the player;s FOV
             else:
@@ -1865,6 +1896,9 @@ make_field()
 message('Welcome to the Warehouse, nerd.', colors.red)
 
 game_state = 'play'
+
+astar = new_astar_map(field)
+
 while not tdl.event.is_window_closed():
     render_all()
     tdl.flush()

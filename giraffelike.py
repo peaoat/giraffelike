@@ -82,33 +82,8 @@ class Entity:
             self.x += dx
             self.y += dy
 
-    # TODO: A* movement
-    def move_smart(self, target_x, target_y):
-        # Don't let those pesky corners stop you from your goal
-        dx = target_x - self.x
-        dy = target_y - self.y
-        distance = math.sqrt(dx ** 2 + dy ** 2)
-        dx = int(round(dx / distance))
-        dy = int(round(dy / distance))
-        gotox = self.x + dx
-        gotoy = self.y + dy
-        if is_blocked(gotox,
-                      gotoy) and gotox != player.x and gotoy != player.y:
-            if gotoy == self.y:
-                if target_y > self.y:
-                    if not is_blocked(gotox, gotoy + 1):
-                        dy += 1
-                elif target_y < self.y:
-                    if not is_blocked(gotox, gotoy - 1):
-                        dy -= 1
-            elif gotox == self.x:
-                if target_x > self.x and not is_blocked(gotox + 1, gotoy):
-                    dx += 1
-                elif target_x < self.x and not is_blocked(gotox - 1, gotoy):
-                    dx -= 1
-        self.move(dx, dy)
-
     def move_towards(self, target_x, target_y):
+        # This movement will not easily go around corners
         dx = target_x - self.x
         dy = target_y - self.y
         distance = math.sqrt(dx ** 2 + dy ** 2)
@@ -118,8 +93,8 @@ class Entity:
 
     def move_astar(self, target_x, target_y):
         path = astar.get_path(self.x, self.y, target_x, target_y)
-
-        print(path)
+        dx, dy = path[0][0] - self.x, path[0][1] - self.y
+        self.move(dx, dy)
 
     def send_to_back(self):
         global objects
@@ -396,7 +371,6 @@ class BasicMonster:
 
             if monster.distance_to(target) >= 2:
                 monster.move_towards(target.x, target.y)
-                # monster.move_astar(target.x, target.y)
             elif player.fighter.hp > 0:
                 monster.fighter.attack(target)
 
@@ -449,14 +423,14 @@ class Behemoth:
             if monster.distance_to(player) > 3:
                 pass
             elif monster.distance_to(player) >= 2:
-                monster.move_smart(player.x, player.y)
+                monster.move_astar(player.x, player.y)
             elif player.fighter.hp > 0:
                 monster.fighter.attack(player)
 
 
 # TODO: Allies should maybe be in a special list?
 # TODO: Limited number of allies? - probably in enthrall()
-# TODO: Ally command states - passive, aggressive, defensive
+# TODO: Ally command states - passive, aggressive, ?defensive?
 # TODO: display ally stats - maybe under a?
 class Ally:
     """AI for allied monsters
@@ -471,12 +445,12 @@ class Ally:
         enemy = self.owner.closest_monster(5)
         if enemy is not None:
             if ally.distance_to(enemy) >= 2:
-                ally.move_smart(enemy.x, enemy.y)
+                ally.move_astar(enemy.x, enemy.y)
             else:
                 ally.fighter.attack(enemy)
         else:
             if ally.distance_to(player) >= 2:
-                ally.move_smart(player.x, player.y)
+                ally.move_astar(player.x, player.y)
 
 
 # # Spells and Items # #
@@ -502,10 +476,10 @@ def enthrall():
     message(f'The {target.name} is now your ally!', colors.gold)
     target.name = 'Your ally'
     target.color = colors.gold
-    target.fighter.base_max_hp = int(1.25 * target.fighter.max_hp)
+    target.fighter.base_max_hp = int(1.15 * target.fighter.max_hp)
     target.fighter.hp = target.fighter.max_hp
-    target.fighter.base_power = int(round(target.fighter.power * 1.25))
-    target.fighter.base_defense = int(round(target.fighter.defense * 1.25))
+    target.fighter.base_power = int(round(target.fighter.power * 1.15))
+    target.fighter.base_defense = int(round(target.fighter.defense * 1.15))
     target.send_to_back()
 
 
@@ -698,7 +672,6 @@ class Tile:
 
 def create_room(room):
     # Pass this a Rect and it will make it a walkable space
-    # global field
     for x in range(room.x1 + 1, room.x2):
         for y in range(room.y1 + 1, room.y2):
             field[x][y].blocked = False
@@ -796,23 +769,12 @@ def make_field():
 
             try:
                 prev_room = rooms[len(rooms) - 1]
-                # (prevx, prevy) = rooms[len(rooms) - 1].random_tile()
             except IndexError:
                 place_objects(this_room)
                 rooms.append(this_room)
                 continue
 
-            # thisx, thisy = this_room.random_tile()
             create_random_tunnel(this_room, prev_room)
-
-            # coin = randint(0, 1)
-            # if coin:
-            #     create_h_tunnel(prevx, thisx, prevy)
-            #     create_v_tunnel(prevy, thisy, thisx)
-            # else:
-            #     create_v_tunnel(prevy, thisy, thisx)
-            #     create_h_tunnel(prevx, thisx, prevy)
-
             place_objects(this_room)
             rooms.append(this_room)
 
@@ -825,9 +787,13 @@ def make_field():
     player.x, player.y = startx, starty
 
     # TODO: random stair placement?
+    # Maybe stairs should have a special room?
     # The stairs are in the last room in the list
     stairs.x, stairs.y = rooms[-1].center()
     stairs.send_to_back()
+
+    # create a map for the astar pathfinding to use
+    new_astar_map()
 
 
 def place_objects(room):
@@ -900,6 +866,7 @@ def place_objects(room):
             'name' : 'troll',
         }
     }
+
     monster_max = dungeon_escalation([[2, 1], [3, 4], [5, 6]])
     num_monsters = randint(0, monster_max)
 
@@ -937,6 +904,7 @@ def place_objects(room):
     # TODO: random equipment -- with keywords?
     # make a method that generates stats combinations based on dungeon level
     # TODO: clean up item storage and selection
+    # items and item modules may need to go into a different script
     # Would rather have a dict of dicts with more readability
     # item_dict = { heal, mana, etc }
     # randomizer(item_dict) == { 'item_name' : 'health potion', ... }
@@ -1231,7 +1199,7 @@ def next_level():
     make_field()
 
 
-def new_astar_map(field):
+def new_astar_map():
     bool_field = [[0 for _ in range(field_width)] for _ in range(field_height)]
 
     for y in range(field_height):
@@ -1242,7 +1210,7 @@ def new_astar_map(field):
         bool_field[obj.y][obj.x] = 1
 
     dungeon = np.array(bool_field, dtype=np.int8)
-    return tcod.path.AStar(dungeon, 1)
+    return tcod.path.AStar(dungeon)
 
 
 # # # # # # # # # # # # # # # # # # # #
@@ -1724,11 +1692,11 @@ def render_all():
                         con.draw_char(x, y, None, fg=None, bg=c_dark_wall)
                     else:
                         con.draw_char(x, y, None, fg=None, bg=c_dark_gnd)
-                # Uncomment this block to see the map outline
-                if wall:
-                    con.draw_char(x, y, None, fg=None, bg=c_dark_wall)
-                else:
-                    con.draw_char(x, y, None, fg=None, bg=c_dark_gnd)
+                # # Uncomment this block to see the map outline
+                # if wall:
+                #     con.draw_char(x, y, None, fg=None, bg=c_dark_wall)
+                # else:
+                #     con.draw_char(x, y, None, fg=None, bg=c_dark_gnd)
 
             # If this tile is in the player;s FOV
             else:
@@ -1897,7 +1865,7 @@ message('Welcome to the Warehouse, nerd.', colors.red)
 
 game_state = 'play'
 
-astar = new_astar_map(field)
+astar = new_astar_map()
 
 while not tdl.event.is_window_closed():
     render_all()

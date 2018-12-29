@@ -10,8 +10,8 @@ import tdl
 import textwrap
 from random import randint
 
-if sys.version_info.major != 3 or sys.version_info.minor != 6:
-    print("This game requires Python version 3.6")
+if sys.version_info.major != 3 or sys.version_info.minor < 6:
+    print("This game requires Python version 3.6 or above")
     sys.exit(1)
 
 # # # # # # # # # # # # # # # # # # # #

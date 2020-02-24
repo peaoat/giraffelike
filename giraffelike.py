@@ -1,18 +1,18 @@
-# Python 3.6
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import colors
+
 import math
-import numpy as np
+from random import randint
 import sys
+import textwrap
+
+import numpy as np
 import tcod.path
 import tdl
-import textwrap
-from random import randint
 
-if sys.version_info.major != 3 or sys.version_info.minor < 6:
-    print("This game requires Python version 3.6 or above")
-    sys.exit(1)
+import colors
+
 
 # # # # # # # # # # # # # # # # # # # #
 # Entities and Entity Modules
